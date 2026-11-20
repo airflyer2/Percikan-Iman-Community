@@ -1,6 +1,6 @@
 import { initializeApp, getApps, FirebaseApp, FirebaseOptions } from 'firebase/app';
 import { getAnalytics, isSupported as isAnalyticsSupported, Analytics } from 'firebase/analytics';
-import { initializeAppCheck, ReCaptchaV3Provider, AppCheck } from 'firebase/app-check';
+import { initializeAppCheck, ReCaptchaV3Provider, ReCaptchaEnterpriseProvider, AppCheck } from 'firebase/app-check';
 import { getAuth, GoogleAuthProvider, connectAuthEmulator, Auth } from 'firebase/auth';
 import {
   initializeFirestore,
@@ -123,8 +123,14 @@ function initFirebaseAppCheck(app: FirebaseApp): void {
   }
 
   try {
+    const providerMode = import.meta.env.VITE_RECAPTCHA_PROVIDER?.trim().toLowerCase();
+    const provider =
+      providerMode === 'enterprise'
+        ? new ReCaptchaEnterpriseProvider(siteKey)
+        : new ReCaptchaV3Provider(siteKey);
+
     firebaseAppCheck = initializeAppCheck(app, {
-      provider: new ReCaptchaV3Provider(siteKey),
+      provider,
       isTokenAutoRefreshEnabled: true,
     });
     appCheckStatus = {
