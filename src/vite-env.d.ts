@@ -12,6 +12,7 @@ declare global {
     readonly VITE_FIREBASE_DATABASE_ID?: string;
     readonly VITE_USE_FIREBASE_EMULATOR?: string;
     readonly VITE_RECAPTCHA_SITE_KEY?: string;
+    readonly VITE_RECAPTCHA_PROVIDER?: string;
     readonly VITE_FIREBASE_APPCHECK_DEBUG_TOKEN?: string;
   }
 

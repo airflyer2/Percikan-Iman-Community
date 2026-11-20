@@ -27,6 +27,12 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
       - name: Install dependencies
         run: npm ci
 
@@ -35,6 +41,9 @@ jobs:
 
       - name: Unit & component tests
         run: npm test
+
+      - name: Firestore Rules Emulator Gate
+        run: npx firebase emulators:exec --project percikan-iman-rules-test --only firestore "npm run test:rules"
 
       - name: Build production bundle
         env:
@@ -47,6 +56,7 @@ jobs:
           VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
           VITE_FIREBASE_DATABASE_ID: ${{ secrets.VITE_FIREBASE_DATABASE_ID }}
           VITE_RECAPTCHA_SITE_KEY: ${{ secrets.VITE_RECAPTCHA_SITE_KEY }}
+          VITE_RECAPTCHA_PROVIDER: ${{ secrets.VITE_RECAPTCHA_PROVIDER }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           VITE_USE_FIREBASE_EMULATOR: 'false'
         run: npm run build
@@ -58,3 +68,6 @@ jobs:
 
       - name: Deploy Firestore Rules, Indexes & Firebase Hosting
         run: npx firebase deploy --project percikan-iman-724ae --only firestore:rules,firestore:indexes,hosting --non-interactive
+
+      - name: Post-Deploy Live Smoke Check
+        run: node scripts/smoke-check.mjs https://percikan-iman-724ae.web.app
