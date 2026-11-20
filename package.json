@@ -11,6 +11,7 @@
     "lint": "tsc --noEmit",
     "save": "node scripts/git-save.mjs",
     "setup": "node scripts/setup.mjs",
+    "slim": "node scripts/slim.mjs",
     "smoke": "node scripts/smoke-check.mjs",
     "secrets:sync": "node scripts/sync-secrets.mjs",
     "test": "vitest run",

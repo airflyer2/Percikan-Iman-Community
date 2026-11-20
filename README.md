@@ -147,11 +147,19 @@ Every pull request targeting `main` from the repository runs [`.github/workflows
 2. Builds an isolated preview bundle (`VITE_RECAPTCHA_SITE_KEY=""` so domain-restricted reCAPTCHA keys do not block ephemeral `--pr-*` hostnames).
 3. Deploys an ephemeral 7-day Firebase Hosting **PR Preview Channel** via `FirebaseExtended/action-hosting-deploy@v0` and runs `node scripts/smoke-check.mjs` against the live preview URL.
 
-### 4. Rehydrating Dependencies After Local Disk Cleanup
+### 4. Rehydrating & Re-Slimming Local Disk (`npm run setup` / `npm run slim`)
 If `node_modules/` was deleted locally to save disk space, restore exact locked dependencies anytime with:
 
 ```bash
 npm run setup
+```
+
+Once finished verifying and pushing (`npm run save`), reclaim ~790 MB back down to ~10 MB (keeping `.git/` and `.env` intact) with:
+
+```bash
+npm run slim
+# Or preview targets first without deleting:
+npm run slim -- --dry-run
 ```
 
 ---
