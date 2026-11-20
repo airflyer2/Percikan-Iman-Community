@@ -92,7 +92,9 @@ vi.mock('../src/lib/firestoreContent', async (importOriginal) => {
     saveDestination: vi.fn(),
     deleteDestination: vi.fn(),
     saveBoardMember: vi.fn(),
-    deleteBoardMember: vi.fn()
+    deleteBoardMember: vi.fn(),
+    reorderBoardMembers: vi.fn(),
+    computeReorderedBoardMembers: vi.fn((list: BoardMember[]) => list)
   };
 });
 

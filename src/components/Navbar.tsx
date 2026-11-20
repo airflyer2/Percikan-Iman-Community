@@ -1,10 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { gsap } from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { useGSAP } from '@gsap/react';
 import { LOGO_URL } from '../constants';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../i18n';
 import { subscribeGaSession } from '../lib/firestoreAssembly';
 import { LanguageSelector } from './LanguageSelector';
+import { RollingTextButton } from './RollingTextButton';
 import {
   Menu,
   X,
@@ -15,8 +19,11 @@ import {
   QrCode,
   Vote,
   Camera,
-  Palette
 } from 'lucide-react';
+
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  gsap.registerPlugin(ScrollTrigger, useGSAP);
+}
 
 export const Navbar: React.FC = () => {
   const { t } = useLanguage();
@@ -27,6 +34,15 @@ export const Navbar: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [isGASessionOpen, setIsGASessionOpen] = useState(false);
+
+  const headerRef = useRef<HTMLElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const mobileMenuOpenRef = useRef(mobileMenuOpen);
+  const userDropdownOpenRef = useRef(userDropdownOpen);
+  const isHiddenRef = useRef(false);
+
+  mobileMenuOpenRef.current = mobileMenuOpen;
+  userDropdownOpenRef.current = userDropdownOpen;
 
   useEffect(() => {
     if (!currentUser?.uid) {
@@ -43,7 +59,149 @@ export const Navbar: React.FC = () => {
   useEffect(() => {
     setMobileMenuOpen(false);
     setUserDropdownOpen(false);
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      headerRef.current &&
+      isHiddenRef.current
+    ) {
+      isHiddenRef.current = false;
+      gsap.to(headerRef.current, {
+        yPercent: 0,
+        opacity: 1,
+        duration: 0.28,
+        ease: 'power3.out',
+        overwrite: 'auto',
+      });
+    }
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!userDropdownOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setUserDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setUserDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [userDropdownOpen]);
+
+  // Force header visible whenever either menu opens
+  useEffect(() => {
+    if (!mobileMenuOpen && !userDropdownOpen) return;
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    if (!headerRef.current) return;
+
+    isHiddenRef.current = false;
+    gsap.to(headerRef.current, {
+      yPercent: 0,
+      opacity: 1,
+      duration: 0.28,
+      ease: 'power3.out',
+      overwrite: 'auto',
+    });
+  }, [mobileMenuOpen, userDropdownOpen]);
+
+  // GSAP ScrollTrigger directional auto-hide
+  useGSAP(
+    () => {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+      if (!headerRef.current) return;
+
+      const mm = gsap.matchMedia();
+      mm.add(
+        {
+          motionOk: '(prefers-reduced-motion: no-preference)',
+          reduceMotion: '(prefers-reduced-motion: reduce)',
+        },
+        (context) => {
+          const { reduceMotion } = context.conditions ?? {};
+          if (reduceMotion) return;
+
+          const showHeader = () => {
+            if (!headerRef.current || !isHiddenRef.current) return;
+            isHiddenRef.current = false;
+            gsap.to(headerRef.current, {
+              yPercent: 0,
+              opacity: 1,
+              duration: 0.28,
+              ease: 'power3.out',
+              overwrite: 'auto',
+            });
+          };
+
+          const hideHeader = () => {
+            if (!headerRef.current || isHiddenRef.current) return;
+            isHiddenRef.current = true;
+            gsap.to(headerRef.current, {
+              yPercent: -135,
+              opacity: 0,
+              duration: 0.32,
+              ease: 'power3.out',
+              overwrite: 'auto',
+            });
+          };
+
+          const trigger = ScrollTrigger.create({
+            start: 0,
+            end: 'max',
+            onUpdate: (self) => {
+              if (mobileMenuOpenRef.current || userDropdownOpenRef.current) {
+                showHeader();
+                return;
+              }
+              const scrollY = self.scroll();
+              if (scrollY > 90 && self.direction === 1) {
+                hideHeader();
+              } else if (self.direction === -1 || scrollY <= 80) {
+                showHeader();
+              }
+            },
+          });
+
+          return () => {
+            trigger.kill();
+            isHiddenRef.current = false;
+            if (headerRef.current) {
+              gsap.set(headerRef.current, { yPercent: 0, opacity: 1 });
+            }
+          };
+        }
+      );
+
+      return () => mm.revert();
+    },
+    { scope: headerRef }
+  );
+
+  const handleRevealOnFocus = () => {
+    if (
+      typeof window === 'undefined' ||
+      typeof window.matchMedia !== 'function' ||
+      !headerRef.current ||
+      !isHiddenRef.current
+    ) {
+      return;
+    }
+    isHiddenRef.current = false;
+    gsap.to(headerRef.current, {
+      yPercent: 0,
+      opacity: 1,
+      duration: 0.28,
+      ease: 'power3.out',
+      overwrite: 'auto',
+    });
+  };
 
   const handleNav = (path: string) => {
     navigate(path);
@@ -59,46 +217,54 @@ export const Navbar: React.FC = () => {
     }
   };
 
+  const hasDenseNav = Boolean(currentUser && (isGASessionOpen || hasFullAdmin));
+
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-    `min-h-10 px-1.5 xl:px-2 py-1.5 rounded-lg text-[13px] whitespace-nowrap shrink-0 cursor-pointer transition-colors inline-flex items-center gap-1 ${
+    `min-h-9 ${
+      hasDenseNav
+        ? 'px-1.5 min-[1380px]:px-2 py-1.5 text-xs min-[1440px]:text-[13px]'
+        : 'px-2.5 py-1.5 text-xs xl:text-[13px]'
+    } rounded-full whitespace-nowrap shrink-0 cursor-pointer transition-colors inline-flex items-center gap-1 ${
       isActive
         ? 'text-[#132435] font-bold bg-[#E1DDD4]'
         : 'text-[#4A5E72] font-medium hover:text-[#132435] hover:bg-[#F4F2ED]'
     }`;
 
+  const navIconClass = hasDenseNav
+    ? 'w-3.5 h-3.5 text-[#1D5B8C] shrink-0 hidden min-[1380px]:inline-block'
+    : 'w-3.5 h-3.5 text-[#1D5B8C] shrink-0';
+
   const isRouteActive = (path: string) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
 
   return (
-    <header className="bg-[#FAF9F6]/95 backdrop-blur-md fixed top-0 inset-x-0 z-50 border-b border-[#D5CFC4]">
+    <header
+      ref={headerRef}
+      onFocusCapture={handleRevealOnFocus}
+      className="fixed top-3 inset-x-0 z-50 px-3 sm:px-6 pointer-events-none"
+    >
       <nav
         aria-label="Primary"
-        className="max-w-[1360px] mx-auto px-4 lg:px-5 h-20 lg:h-22 flex justify-between items-center w-full gap-2 lg:gap-3"
+        className="pointer-events-auto max-w-[1360px] mx-auto rounded-2xl lg:rounded-full bg-white/94 backdrop-blur-md border border-[#DCE2DF] shadow-[0_10px_30px_-10px_rgba(15,29,38,0.16),0_2px_8px_-2px_rgba(15,29,38,0.06)] px-3 sm:px-5 h-16 lg:h-[68px] flex justify-between items-center w-full gap-2"
       >
-        {/* Institutional Logo Lockup (kept as <button> for brandStyleguide.test.tsx) */}
+        {/* Institutional Logo Lockup */}
         <button
           type="button"
           onClick={() => handleNav('/')}
           aria-label="Verein Percikan Iman Schweiz — Home"
-          className="flex items-center gap-3 text-left group cursor-pointer shrink-0 py-1 rounded-lg"
+          className="flex items-center gap-2.5 text-left group cursor-pointer shrink-0 py-1 rounded-full"
         >
           <img
             src={LOGO_URL}
             alt="Percikan Iman Schweiz"
-            className="h-11 sm:h-12 lg:h-13 w-auto object-contain transition-transform group-hover:scale-102"
+            className={`${
+              hasDenseNav ? 'h-8 2xl:h-9' : 'h-8 sm:h-9 lg:h-10'
+            } w-auto object-contain transition-transform group-hover:scale-102`}
           />
-          <div className="hidden 2xl:flex flex-col border-l border-[#D5CFC4] pl-3">
-            <span className="font-editorial text-[17px] font-bold text-[#132435] leading-tight tracking-tight">
-              Percikan Iman
-            </span>
-            <span className="font-mono text-[11px] text-[#4A5E72] tracking-tight">
-              Zürich · ZGB Art. 60–79
-            </span>
-          </div>
         </button>
 
         {/* Desktop Links */}
-        <div className="hidden md:flex items-center gap-0.5 lg:gap-1 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="hidden lg:flex items-center gap-0.5 xl:gap-1 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <NavLink to="/" end className={navLinkClass}>
             {t.nav.home}
           </NavLink>
@@ -112,20 +278,20 @@ export const Navbar: React.FC = () => {
           </NavLink>
 
           <NavLink to="/gallery" className={navLinkClass}>
-            <Camera className="w-3.5 h-3.5 text-[#1D5B8C]" aria-hidden="true" />
+            <Camera className={navIconClass} aria-hidden="true" />
             <span>Galerie</span>
           </NavLink>
 
           {currentUser && (isGASessionOpen || hasFullAdmin) && (
             <NavLink to="/assembly" className={navLinkClass}>
-              <Vote className="w-4 h-4 text-[#1D5B8C]" aria-hidden="true" />
+              <Vote className={navIconClass} aria-hidden="true" />
               <span>General Assembly</span>
               {isGASessionOpen ? (
-                <span className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-[#F3E8DF] text-[#8C5327]">
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#F3E8DF] text-[#8C5327]">
                   Live
                 </span>
               ) : (
-                <span className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-[#DFE8F0] text-[#1D5B8C]">
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#DFE8F0] text-[#1D5B8C]">
                   Prep
                 </span>
               )}
@@ -143,10 +309,10 @@ export const Navbar: React.FC = () => {
           {/* Member Profile Link (Visible when logged in) */}
           {currentUser && (
             <NavLink to="/member" className={navLinkClass}>
-              <Users className="w-4 h-4 text-[#1D5B8C]" aria-hidden="true" />
+              <Users className={navIconClass} aria-hidden="true" />
               <span>{t.nav.myMembership}</span>
               {currentUser.membershipCategory === 'family' && (
-                <span className="text-[11px] px-1.5 py-0.5 bg-[#DFE8F0] text-[#1D5B8C] rounded font-semibold">
+                <span className="text-[10px] px-1.5 py-0.5 bg-[#DFE8F0] text-[#1D5B8C] rounded-full font-semibold">
                   {t.nav.familyTag}
                 </span>
               )}
@@ -155,38 +321,44 @@ export const Navbar: React.FC = () => {
         </div>
 
         {/* Action Controls & Account Dropdown */}
-        <div className="hidden md:flex items-center gap-2 shrink-0">
+        <div className="hidden lg:flex items-center gap-1.5 xl:gap-2 shrink-0">
           <LanguageSelector variant="navbar" />
 
           {currentUser ? (
-            <div className="relative">
+            <div className="relative" ref={userMenuRef}>
               <button
                 type="button"
                 onClick={() => setUserDropdownOpen(!userDropdownOpen)}
                 aria-expanded={userDropdownOpen}
-                className="min-h-10 flex items-center gap-2 px-3 py-1.5 bg-[#E1DDD4] text-[#132435] rounded-lg text-xs font-semibold border border-[#D5CFC4] hover:border-[#B8B0A2] transition-colors cursor-pointer"
+                className="min-h-9 flex items-center gap-1.5 px-2.5 py-1.5 bg-[#E1DDD4] text-[#132435] rounded-full text-xs font-semibold border border-[#D5CFC4] hover:border-[#B8B0A2] transition-colors cursor-pointer"
               >
                 {currentUser.avatarUrl ? (
                   <img
                     src={currentUser.avatarUrl}
                     alt=""
                     referrerPolicy="no-referrer"
-                    className="w-6 h-6 rounded-full object-cover border border-[#1D5B8C]"
+                    className="w-6 h-6 rounded-full object-cover border border-[#1D5B8C] shrink-0"
                   />
                 ) : (
                   <span
                     aria-hidden="true"
-                    className="w-6 h-6 rounded-full bg-[#1D5B8C] text-white flex items-center justify-center text-xs font-bold"
+                    className="w-6 h-6 rounded-full bg-[#1D5B8C] text-white flex items-center justify-center text-xs font-bold shrink-0"
                   >
                     {currentUser.name.charAt(0).toUpperCase()}
                   </span>
                 )}
-                <span className="max-w-[110px] truncate">{currentUser.name}</span>
-                <CheckCircle2 className="w-3.5 h-3.5 text-[#8C5327]" aria-hidden="true" />
+                <span
+                  className={`${
+                    hasDenseNav ? 'max-w-[96px] min-[1380px]:max-w-[130px]' : 'max-w-[130px]'
+                  } truncate`}
+                >
+                  {currentUser.name}
+                </span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#8C5327] shrink-0" aria-hidden="true" />
               </button>
 
               {userDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-[#FAF9F6] rounded-xl shadow-lg border border-[#D5CFC4] p-2 z-50">
+                <div className="absolute right-0 mt-2 w-56 bg-[#FAF9F6] rounded-2xl shadow-lg border border-[#D5CFC4] p-2 z-50">
                   <div className="px-3 py-2 border-b border-[#E1DDD4] mb-1">
                     <p className="text-xs text-[#4A5E72]">{t.nav.welcomeBack}</p>
                     <p className="text-sm font-semibold text-[#132435] truncate">
@@ -238,17 +410,6 @@ export const Navbar: React.FC = () => {
                   )}
                   <button
                     type="button"
-                    onClick={() => {
-                      setUserDropdownOpen(false);
-                      handleNav('/brand');
-                    }}
-                    className="w-full min-h-9 flex items-center gap-2 px-3 py-2 text-xs font-semibold text-[#132435] hover:bg-[#EAE6DF] rounded-lg text-left transition-colors cursor-pointer mb-1"
-                  >
-                    <Palette className="w-3.5 h-3.5 text-[#1D5B8C]" aria-hidden="true" />
-                    <span>{t.nav.brandKit}</span>
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => void handleSignOut()}
                     className="w-full min-h-9 flex items-center gap-2 px-3 py-2 text-xs font-semibold text-[#8C5327] hover:bg-[#F3E8DF] rounded-lg text-left transition-colors cursor-pointer"
                   >
@@ -259,18 +420,17 @@ export const Navbar: React.FC = () => {
               )}
             </div>
           ) : (
-            <button
-              type="button"
+            <RollingTextButton
+              label={t.nav.login}
+              magnetic={false}
               onClick={() => handleNav('/login')}
-              className="min-h-10 bg-[#1D5B8C] hover:bg-[#15466E] text-white px-4 py-2 rounded-lg font-semibold text-xs transition-colors cursor-pointer"
-            >
-              {t.nav.login}
-            </button>
+              className="min-h-9 bg-[#1D5B8C] hover:bg-[#15466E] text-white px-4 py-1.5 rounded-full font-semibold text-xs inline-flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            />
           )}
         </div>
 
         {/* Mobile menu trigger */}
-        <div className="flex md:hidden items-center gap-2">
+        <div className="flex lg:hidden items-center gap-2 shrink-0">
           {currentUser && (
             <span
               aria-hidden="true"
@@ -284,12 +444,12 @@ export const Navbar: React.FC = () => {
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-expanded={mobileMenuOpen}
             aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
-            className="min-h-10 min-w-10 p-2 text-[#132435] hover:bg-[#E1DDD4] rounded-lg inline-flex items-center justify-center"
+            className="min-h-10 min-w-10 p-2 text-[#132435] hover:bg-[#E1DDD4] rounded-full inline-flex items-center justify-center cursor-pointer"
           >
             {mobileMenuOpen ? (
-              <X className="w-6 h-6" aria-hidden="true" />
+              <X className="w-5 h-5" aria-hidden="true" />
             ) : (
-              <Menu className="w-6 h-6" aria-hidden="true" />
+              <Menu className="w-5 h-5" aria-hidden="true" />
             )}
           </button>
         </div>
@@ -297,7 +457,7 @@ export const Navbar: React.FC = () => {
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-[#FAF9F6] border-t border-[#D5CFC4] px-6 py-4 space-y-2 shadow-lg">
+        <div className="pointer-events-auto lg:hidden mt-2 max-w-[1360px] mx-auto bg-white/96 backdrop-blur-md border border-[#DCE2DF] rounded-2xl px-5 py-4 space-y-2 shadow-[0_16px_40px_-12px_rgba(15,29,38,0.2)] max-h-[calc(100vh-6rem)] overflow-y-auto">
           <div className="pb-3 border-b border-[#E1DDD4]">
             <LanguageSelector variant="mobile" />
           </div>
@@ -359,7 +519,7 @@ export const Navbar: React.FC = () => {
                 <Vote className="w-4 h-4 text-[#1D5B8C]" aria-hidden="true" />
                 <span>General Assembly</span>
               </span>
-              <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-[#F3E8DF] text-[#8C5327]">
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#F3E8DF] text-[#8C5327]">
                 {isGASessionOpen ? 'Live' : 'Prep'}
               </span>
             </button>
@@ -384,19 +544,6 @@ export const Navbar: React.FC = () => {
           >
             {t.nav.contact}
           </button>
-          <button
-            type="button"
-            onClick={() => handleNav('/brand')}
-            aria-current={isRouteActive('/brand') ? 'page' : undefined}
-            className={`block w-full text-left py-2.5 px-3 rounded-lg font-medium flex items-center gap-2 ${
-              isRouteActive('/brand')
-                ? 'bg-[#E1DDD4] text-[#132435] font-bold'
-                : 'text-[#4A5E72]'
-            }`}
-          >
-            <Palette className="w-4 h-4 text-[#1D5B8C]" aria-hidden="true" />
-            <span>{t.nav.brandKit}</span>
-          </button>
 
           {currentUser && (
             <button
@@ -411,7 +558,7 @@ export const Navbar: React.FC = () => {
               <Users className="w-4 h-4 text-[#1D5B8C]" aria-hidden="true" />
               <span>{t.nav.myMembership}</span>
               {currentUser.membershipCategory === 'family' && (
-                <span className="text-[11px] px-1.5 py-0.5 bg-[#DFE8F0] text-[#1D5B8C] rounded font-semibold">
+                <span className="text-[11px] px-1.5 py-0.5 bg-[#DFE8F0] text-[#1D5B8C] rounded-full font-semibold">
                   {t.nav.familyTag}
                 </span>
               )}
@@ -421,14 +568,14 @@ export const Navbar: React.FC = () => {
           <div className="pt-3 border-t border-[#E1DDD4] flex flex-col gap-2">
             {currentUser ? (
               <div className="flex items-center justify-between pt-1">
-                <div className="text-sm">
-                  <p className="font-semibold text-[#132435]">{currentUser.name}</p>
-                  <p className="text-xs text-[#4A5E72]">{currentUser.email}</p>
+                <div className="text-sm min-w-0 pr-2">
+                  <p className="font-semibold text-[#132435] truncate">{currentUser.name}</p>
+                  <p className="text-xs text-[#4A5E72] truncate">{currentUser.email}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => void handleSignOut()}
-                  className="min-h-9 px-3.5 py-1.5 text-xs text-[#8C5327] bg-[#F3E8DF] rounded-lg font-semibold"
+                  className="min-h-9 px-3.5 py-1.5 text-xs text-[#8C5327] bg-[#F3E8DF] rounded-full font-semibold shrink-0"
                 >
                   {t.nav.logout}
                 </button>
@@ -437,7 +584,7 @@ export const Navbar: React.FC = () => {
               <button
                 type="button"
                 onClick={() => handleNav('/login')}
-                className="w-full min-h-11 py-2.5 bg-[#1D5B8C] text-white rounded-lg font-semibold text-sm"
+                className="w-full min-h-11 py-2.5 bg-[#1D5B8C] text-white rounded-full font-semibold text-sm"
               >
                 {t.nav.login}
               </button>

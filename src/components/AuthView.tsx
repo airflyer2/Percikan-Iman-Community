@@ -1,5 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { gsap } from 'gsap';
+import { useGSAP } from '@gsap/react';
 import { AUTH_HERO_IMAGE, MEMBER_AVATARS } from '../constants';
 import { useAuth } from '../context/AuthContext';
 import { UserAccount, MembershipCategory } from '../types';
@@ -16,6 +18,7 @@ import {
 import { saveRuntimeFirebaseConfig, getFirebaseOptions, clearRuntimeFirebaseConfig } from '../lib/firebase';
 import { isValidEmailFormat } from '../lib/firestoreContent';
 import { InfoModals } from './InfoModals';
+import { RollingTextButton } from './RollingTextButton';
 import {
   Eye,
   EyeOff,
@@ -40,6 +43,10 @@ import {
   Cloud
 } from 'lucide-react';
 
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  gsap.registerPlugin(useGSAP);
+}
+
 interface AuthViewProps {
   onAuthSuccess?: (user: UserAccount) => void;
   onOpenModal?: (type: 'terms' | 'privacy') => void;
@@ -49,6 +56,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onOpenModal }
   const { authStatus, currentUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const rootRef = useRef<HTMLDivElement>(null);
   const isDevConfigEnabled = Boolean(import.meta.env?.DEV);
   const showDemoCredentials = Boolean(import.meta.env?.DEV || isEmulatorMode());
 
@@ -131,6 +139,55 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onOpenModal }
       setLocalInfoModal(type);
     }
   };
+
+  useGSAP(
+    () => {
+      if (
+        (authStatus === 'authenticated' && currentUser && !pendingGoogleUser) ||
+        typeof window === 'undefined' ||
+        typeof window.matchMedia !== 'function'
+      ) {
+        return;
+      }
+      const mm = gsap.matchMedia();
+      mm.add(
+        {
+          motionOk: '(prefers-reduced-motion: no-preference)',
+          reduceMotion: '(prefers-reduced-motion: reduce)'
+        },
+        (context) => {
+          const { motionOk, reduceMotion } = context.conditions ?? {};
+          if (!motionOk || reduceMotion) return;
+
+          const shell = gsap.utils.toArray<HTMLElement>('[data-gsap="auth-shell"]');
+          if (shell.length > 0) {
+            gsap.from(shell, {
+              y: 16,
+              opacity: 0,
+              duration: 0.65,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity'
+            });
+          }
+
+          const items = gsap.utils.toArray<HTMLElement>('[data-gsap="auth-stagger"]');
+          if (items.length > 0) {
+            gsap.from(items, {
+              y: 12,
+              opacity: 0,
+              duration: 0.55,
+              stagger: 0.07,
+              delay: 0.08,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity'
+            });
+          }
+        }
+      );
+      return () => mm.revert();
+    },
+    { scope: rootRef }
+  );
 
   if (authStatus === 'authenticated' && currentUser && !pendingGoogleUser) {
     return <Navigate to={redirectTo} replace />;
@@ -346,9 +403,12 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onOpenModal }
   };
 
   return (
-    <div className="min-h-[calc(100vh-160px)] flex items-center justify-center py-12 bg-[#f9f9ff]">
+    <div ref={rootRef} className="min-h-[calc(100vh-160px)] flex items-center justify-center py-12 bg-[#f9f9ff]">
       <div className="max-w-[1160px] w-full mx-auto px-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 bg-white rounded-2xl overflow-hidden shadow-[0px_8px_30px_rgba(0,0,0,0.06)] border border-[#bec7d2]/40">
+        <div
+          data-gsap="auth-shell"
+          className="grid grid-cols-1 lg:grid-cols-12 bg-white rounded-2xl overflow-hidden shadow-[0px_8px_30px_rgba(0,0,0,0.06)] border border-[#bec7d2]/40"
+        >
           {/* Left Side: Visual & Swiss Verein Identity */}
           <div className="relative hidden lg:flex lg:col-span-5 flex-col justify-between p-10 min-h-[640px]">
             <div className="absolute inset-0 z-0">
@@ -360,14 +420,14 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onOpenModal }
               <div className="absolute inset-0 bg-gradient-to-t from-[#003d5c]/95 via-[#006191]/60 to-[#003d5c]/40"></div>
             </div>
 
-            <div className="relative z-10 flex items-center justify-between">
+            <div data-gsap="auth-stagger" className="relative z-10 flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md text-white text-xs font-semibold border border-white/20">
                 <ShieldCheck className="w-3.5 h-3.5 text-sky-300" />
                 Swiss Verein (Art. 60 ff. ZGB)
               </span>
             </div>
 
-            <div className="relative z-10 text-white space-y-5">
+            <div data-gsap="auth-stagger" className="relative z-10 text-white space-y-5">
               <div>
                 <h1 className="text-3xl font-bold tracking-tight mb-3 text-white leading-snug">
                   Percikan Iman Community Portal
@@ -407,7 +467,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onOpenModal }
           </div>
 
           {/* Right Side: Clean Authentication & Registration Forms */}
-          <div className="lg:col-span-7 p-8 sm:p-12 flex flex-col justify-center bg-white">
+          <div data-gsap="auth-stagger" className="lg:col-span-7 p-8 sm:p-12 flex flex-col justify-center bg-white">
             <div className="w-full max-w-md mx-auto">
               {/* Backend Status Bar */}
               <div className="flex items-center justify-between mb-6">
@@ -565,20 +625,22 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onOpenModal }
                           </div>
                         </div>
 
-                        <button
+                        <RollingTextButton
                           type="submit"
+                          magnetic={false}
                           disabled={isSubmitting}
-                          className="w-full py-3.5 bg-[#006191] text-white font-bold rounded-xl hover:bg-[#007bb6] active:scale-[0.99] transition-all shadow-sm cursor-pointer text-sm disabled:opacity-60 flex items-center justify-center gap-2 mt-2"
-                        >
-                          {isSubmitting ? (
-                            <>
-                              <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                              <span>Verifying Credentials...</span>
-                            </>
-                          ) : (
-                            <span>Sign In</span>
-                          )}
-                        </button>
+                          aria-label={isSubmitting ? 'Verifying Credentials...' : 'Sign In'}
+                          label={isSubmitting ? 'Verifying Credentials...' : 'Sign In'}
+                          leftIcon={
+                            isSubmitting ? (
+                              <span
+                                className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0"
+                                aria-hidden="true"
+                              />
+                            ) : undefined
+                          }
+                          className="w-full py-3.5 px-6 bg-[#006191] text-white font-bold rounded-xl hover:bg-[#007bb6] active:scale-[0.99] transition-all shadow-sm cursor-pointer text-sm disabled:opacity-60 flex items-center justify-center gap-2 mt-2"
+                        />
                       </form>
 
                       {/* Google OAuth Divider */}
@@ -829,19 +891,19 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onOpenModal }
                             </div>
                           </div>
 
-                          <button
+                          <RollingTextButton
                             type="button"
+                            magnetic={false}
                             disabled={isSubmitting}
                             onClick={() => handleCompleteRegistration('twint')}
-                            className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 text-sm disabled:opacity-60"
-                          >
-                            <Check className="w-4 h-4" />
-                            <span>
-                              {isSubmitting
+                            leftIcon={<Check className="w-4 h-4 shrink-0" aria-hidden="true" />}
+                            label={
+                              isSubmitting
                                 ? 'Creating Member Account...'
-                                : `Confirm CHF ${membershipCategory === 'family' ? 120 : 80} TWINT & Create Account`}
-                            </span>
-                          </button>
+                                : `Confirm CHF ${membershipCategory === 'family' ? 120 : 80} TWINT & Create Account`
+                            }
+                            className="w-full py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 text-sm disabled:opacity-60"
+                          />
                         </div>
                       )}
 
@@ -866,17 +928,19 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onOpenModal }
                             </div>
                           </div>
 
-                          <button
+                          <RollingTextButton
                             type="button"
+                            magnetic={false}
                             disabled={isSubmitting}
                             onClick={() => handleCompleteRegistration('bank_transfer')}
-                            className="w-full py-3.5 bg-[#006191] hover:bg-[#007bb6] text-white font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 text-sm disabled:opacity-60"
-                          >
-                            <ChevronRight className="w-4 h-4" />
-                            <span>
-                              {isSubmitting ? 'Submitting Application...' : 'Complete Registration (Bank Transfer)'}
-                            </span>
-                          </button>
+                            leftIcon={<ChevronRight className="w-4 h-4 shrink-0" aria-hidden="true" />}
+                            label={
+                              isSubmitting
+                                ? 'Submitting Application...'
+                                : 'Complete Registration (Bank Transfer)'
+                            }
+                            className="w-full py-3.5 px-4 bg-[#006191] hover:bg-[#007bb6] text-white font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 text-sm disabled:opacity-60"
+                          />
                         </div>
                       )}
 
@@ -886,17 +950,19 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onOpenModal }
                             Your account will be created in <strong>Pending Payment</strong> status until you settle{' '}
                             <strong>CHF {membershipCategory === 'family' ? 120 : 80}</strong> in cash at the welcome desk during our next community gathering.
                           </p>
-                          <button
+                          <RollingTextButton
                             type="button"
+                            magnetic={false}
                             disabled={isSubmitting}
                             onClick={() => handleCompleteRegistration('cash')}
-                            className="w-full py-3.5 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 text-sm disabled:opacity-60"
-                          >
-                            <Coins className="w-4 h-4" />
-                            <span>
-                              {isSubmitting ? 'Submitting Application...' : 'Complete Registration (Cash at Desk)'}
-                            </span>
-                          </button>
+                            leftIcon={<Coins className="w-4 h-4 shrink-0" aria-hidden="true" />}
+                            label={
+                              isSubmitting
+                                ? 'Submitting Application...'
+                                : 'Complete Registration (Cash at Desk)'
+                            }
+                            className="w-full py-3.5 px-4 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center justify-center gap-2 text-sm disabled:opacity-60"
+                          />
                         </div>
                       )}
                     </div>
@@ -1165,12 +1231,13 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onOpenModal }
                         </label>
                       </div>
 
-                      <button
+                      <RollingTextButton
                         type="submit"
-                        className="w-full py-3.5 bg-[#006191] text-white font-bold rounded-xl hover:bg-[#007bb6] transition-all shadow-sm cursor-pointer text-sm"
-                      >
-                        Continue to Fee Settlement (CHF {membershipCategory === 'family' ? 120 : 80}) &rarr;
-                      </button>
+                        magnetic={false}
+                        aria-label={`Continue to Fee Settlement (CHF ${membershipCategory === 'family' ? 120 : 80}) →`}
+                        label={`Continue to Fee Settlement (CHF ${membershipCategory === 'family' ? 120 : 80}) →`}
+                        className="w-full py-3.5 px-6 bg-[#006191] text-white font-bold rounded-xl hover:bg-[#007bb6] transition-all shadow-sm cursor-pointer text-sm inline-flex items-center justify-center"
+                      />
                     </form>
                   )}
                 </>
@@ -1215,13 +1282,14 @@ export const AuthView: React.FC<AuthViewProps> = ({ onAuthSuccess, onOpenModal }
                   {resetStatus.text}
                 </div>
               )}
-              <button
+              <RollingTextButton
                 type="submit"
+                magnetic={false}
                 disabled={isSendingReset}
-                className="w-full py-2.5 bg-[#006191] text-white text-xs font-bold rounded-xl hover:bg-[#007bb6] cursor-pointer"
-              >
-                {isSendingReset ? 'Sending Reset Link...' : 'Send Password Reset Email'}
-              </button>
+                aria-label={isSendingReset ? 'Sending Reset Link...' : 'Send Password Reset Email'}
+                label={isSendingReset ? 'Sending Reset Link...' : 'Send Password Reset Email'}
+                className="w-full py-2.5 px-4 bg-[#006191] text-white text-xs font-bold rounded-xl hover:bg-[#007bb6] cursor-pointer inline-flex items-center justify-center disabled:opacity-60"
+              />
             </form>
           </div>
         </div>

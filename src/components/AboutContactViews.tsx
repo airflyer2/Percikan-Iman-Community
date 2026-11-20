@@ -1,5 +1,9 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { gsap } from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { Flip } from 'gsap/Flip';
+import { useGSAP } from '@gsap/react';
 import {
   Mail,
   Phone,
@@ -32,6 +36,40 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { subscribeBoardMembers } from '../lib/firestoreContent';
 import { useLanguage } from '../i18n';
+import { RollingTextButton } from './RollingTextButton';
+
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  gsap.registerPlugin(ScrollTrigger, Flip, useGSAP);
+}
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return true;
+  }
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+function getObjectPositionClass(position?: BoardMember['imagePosition']): string {
+  switch (position) {
+    case 'center':
+      return 'object-center';
+    case 'bottom':
+      return 'object-bottom';
+    case 'top':
+    default:
+      return 'object-top';
+  }
+}
+
+function getMemberInitials(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return 'PI';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
 
 interface AboutViewProps {
   onOpenStatuten?: () => void;
@@ -41,10 +79,14 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
   const { t } = useLanguage();
   const { currentUser } = useAuth();
   const navigate = useNavigate();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const boardGridRef = useRef<HTMLDivElement>(null);
+  const boardFlipStateRef = useRef<Flip.FlipState | null>(null);
 
   const [boardMembers, setBoardMembers] = useState<BoardMember[]>([]);
   const [boardLoading, setBoardLoading] = useState(true);
   const [boardError, setBoardError] = useState<string | null>(null);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
   const [selectedDept, setSelectedDept] = useState<string>('All Departments');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -57,6 +99,98 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
     });
     return () => unsub();
   }, []);
+
+  useGSAP(
+    () => {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+      const mm = gsap.matchMedia();
+      mm.add(
+        {
+          motionOk: '(prefers-reduced-motion: no-preference)',
+          reduceMotion: '(prefers-reduced-motion: reduce)'
+        },
+        (context) => {
+          const { motionOk, reduceMotion } = context.conditions ?? {};
+          if (!motionOk || reduceMotion) return;
+
+          const heroItems = gsap.utils.toArray<HTMLElement>('[data-gsap="about-hero"]');
+          if (heroItems.length > 0) {
+            gsap.from(heroItems, {
+              y: 18,
+              opacity: 0,
+              duration: 0.65,
+              stagger: 0.08,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity'
+            });
+          }
+
+          const cards = gsap.utils.toArray<HTMLElement>('[data-gsap="about-card"]');
+          cards.forEach((card) => {
+            gsap.from(card, {
+              y: 20,
+              opacity: 0,
+              duration: 0.6,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity',
+              scrollTrigger: {
+                trigger: card,
+                start: 'top 92%',
+                once: true
+              }
+            });
+          });
+        }
+      );
+      return () => mm.revert();
+    },
+    { scope: rootRef }
+  );
+
+  const hasBoardMembers = !boardLoading && boardMembers.length > 0;
+
+  useGSAP(
+    () => {
+      if (
+        !hasBoardMembers ||
+        typeof window === 'undefined' ||
+        typeof window.matchMedia !== 'function'
+      ) {
+        return;
+      }
+      const mm = gsap.matchMedia();
+      mm.add(
+        {
+          motionOk: '(prefers-reduced-motion: no-preference)',
+          reduceMotion: '(prefers-reduced-motion: reduce)'
+        },
+        (context) => {
+          const { motionOk, reduceMotion } = context.conditions ?? {};
+          if (!motionOk || reduceMotion) return;
+
+          const boardCards = gsap.utils.toArray<HTMLElement>('[data-gsap="board-card"]');
+          if (boardCards.length > 0) {
+            gsap.from(boardCards, {
+              y: 22,
+              opacity: 0,
+              duration: 0.6,
+              stagger: 0.07,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity',
+              scrollTrigger: {
+                trigger: '#board-section',
+                start: 'top 88%',
+                once: true
+              }
+            });
+            ScrollTrigger.refresh();
+          }
+        }
+      );
+      return () => mm.revert();
+    },
+    { scope: rootRef, dependencies: [hasBoardMembers] }
+  );
 
   const filteredMembers = useMemo(() => {
     return boardMembers.filter((member) => {
@@ -71,11 +205,67 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
     });
   }, [boardMembers, selectedDept, searchQuery]);
 
+  const captureBoardFlipState = () => {
+    if (prefersReducedMotion() || !boardGridRef.current) return;
+    const cards = boardGridRef.current.querySelectorAll('[data-about-board-card]');
+    if (cards.length === 0) return;
+    ScrollTrigger.getAll().forEach((st) => {
+      if (st.trigger && (st.trigger as Element).id === 'board-section') {
+        st.animation?.progress(1);
+        st.kill();
+      }
+    });
+    gsap.set(cards, { opacity: 1 });
+    boardFlipStateRef.current = Flip.getState(cards);
+  };
+
+  const handleSelectDept = (dept: string) => {
+    if (dept === selectedDept) return;
+    captureBoardFlipState();
+    setSelectedDept(dept);
+  };
+
+  const handleSearchChange = (value: string) => {
+    captureBoardFlipState();
+    setSearchQuery(value);
+  };
+
+  useGSAP(
+    () => {
+      const state = boardFlipStateRef.current;
+      boardFlipStateRef.current = null;
+      if (!state || !boardGridRef.current || prefersReducedMotion()) return;
+
+      const targets = boardGridRef.current.querySelectorAll('[data-about-board-card]');
+      if (targets.length === 0) return;
+      Flip.from(state, {
+        targets,
+        duration: 0.45,
+        ease: 'power3.out',
+        stagger: 0.035,
+        absolute: true,
+        nested: true,
+        onEnter: (els) =>
+          gsap.fromTo(
+            els,
+            { opacity: 0, scale: 0.94, y: 12 },
+            { opacity: 1, scale: 1, y: 0, duration: 0.35, clearProps: 'transform,opacity' }
+          ),
+        onLeave: (els) =>
+          gsap.to(els, { opacity: 0, scale: 0.94, duration: 0.25 })
+      });
+    },
+    { scope: boardGridRef, dependencies: [selectedDept, searchQuery, filteredMembers] }
+  );
+
   return (
-    <div className="w-full py-12">
+    <div ref={rootRef} className="w-full py-12">
       <div className="max-w-[1200px] mx-auto px-6">
         {/* Banner */}
-        <div className="bg-white rounded-2xl p-8 md:p-12 mb-12 border border-[#DCE2DF]">
+        <div
+          data-gsap="about-hero"
+          className="bg-white rounded-2xl p-8 md:p-12 mb-12 border border-[#DCE2DF]"
+        >
           <span className="inline-block px-3 py-1 bg-[#E6F0F5] text-[#005A87] text-xs font-semibold rounded mb-3 border border-[#005A87]/20">
             {t.about.since1998}
           </span>
@@ -89,13 +279,19 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
 
         {/* Vision & Mission */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-14">
-          <div className="p-8 bg-white rounded-xl border border-[#DCE2DF] program-card-shadow">
+          <div
+            data-gsap="about-hero"
+            className="p-8 bg-white rounded-xl border border-[#DCE2DF] program-card-shadow"
+          >
             <h2 className="font-editorial text-2xl font-semibold text-[#0F1D26] mb-3">{t.about.visionTitle}</h2>
             <p className="text-sm md:text-base text-[#4A5862] leading-relaxed">
               {t.about.visionDesc}
             </p>
           </div>
-          <div className="p-8 bg-white rounded-xl border border-[#DCE2DF] program-card-shadow">
+          <div
+            data-gsap="about-hero"
+            className="p-8 bg-white rounded-xl border border-[#DCE2DF] program-card-shadow"
+          >
             <h2 className="font-editorial text-2xl font-semibold text-[#0F1D26] mb-3">{t.about.missionTitle}</h2>
             <ul className="text-sm md:text-base text-[#4A5862] space-y-2.5 list-disc list-inside leading-relaxed">
               <li>{t.about.mission1}</li>
@@ -106,7 +302,7 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
         </div>
 
         {/* Swiss Legality & Official German Statutes Section */}
-        <section id="swiss-legality-section" className="mb-16">
+        <section id="swiss-legality-section" data-gsap="about-card" className="mb-16">
           <div className="bg-white rounded-2xl border border-[#DCE2DF] p-8 md:p-10 relative overflow-hidden">
             <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-8">
               <div className="space-y-4 max-w-3xl">
@@ -154,14 +350,13 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
 
               {onOpenStatuten && (
                 <div className="flex flex-col sm:flex-row lg:flex-col gap-2.5 w-full lg:w-auto shrink-0">
-                  <button
+                  <RollingTextButton
                     type="button"
                     onClick={onOpenStatuten}
+                    leftIcon={<BookOpen className="w-4 h-4 shrink-0" aria-hidden="true" />}
+                    label={t.about.viewStatutesBtn}
                     className="min-h-12 px-6 py-3.5 bg-[#005A87] hover:bg-[#004569] text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-2.5 cursor-pointer"
-                  >
-                    <BookOpen className="w-4 h-4" aria-hidden="true" />
-                    <span>{t.about.viewStatutesBtn}</span>
-                  </button>
+                  />
                   <span className="text-[11px] text-center text-[#4A5862]">
                     Vollständiger Wortlaut (12 Artikel) • 23. Feb 2025
                   </span>
@@ -172,7 +367,7 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
         </section>
 
         {/* Audited Financial Report & Vereinsversammlung Governance - MEMBER RESTRICTED */}
-        <section id="financial-governance-section" className="mb-16">
+        <section id="financial-governance-section" data-gsap="about-card" className="mb-16">
           {currentUser ? (
             <div className="bg-white rounded-2xl border border-[#DCE2DF] p-8">
               <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-6 border-b border-[#EEF2F0]">
@@ -282,23 +477,22 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
                 Gemäss den Statuten des Vereins Percikan Iman Schweiz (Art. 8 Rechte der Mitglieder &amp; Art. 10 Revisionsstelle) sind die detaillierten Finanzberichte, Bilanzaufstellungen und der Prüfbericht der Revisoren ausschliesslich registrierten Vereinsmitgliedern zugänglich.
               </p>
               <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                <button
+                <RollingTextButton
                   type="button"
                   onClick={() => navigate('/login')}
+                  leftIcon={<KeyRound className="w-4 h-4 shrink-0" aria-hidden="true" />}
+                  label="Als Mitglied anmelden"
                   className="min-h-11 px-5 py-2.5 bg-[#005A87] hover:bg-[#004569] text-white rounded-lg text-xs font-semibold transition-colors flex items-center gap-2 cursor-pointer"
-                >
-                  <KeyRound className="w-4 h-4" aria-hidden="true" />
-                  <span>Als Mitglied anmelden</span>
-                </button>
+                />
                 {onOpenStatuten && (
-                  <button
+                  <RollingTextButton
                     type="button"
+                    magnetic={false}
                     onClick={onOpenStatuten}
+                    leftIcon={<BookOpen className="w-4 h-4 text-[#005A87] shrink-0" aria-hidden="true" />}
+                    label="Vereinsstatuten einsehen"
                     className="min-h-11 px-4 py-2.5 bg-[#F6F7F4] hover:bg-[#EEF2F0] text-[#0F1D26] rounded-lg text-xs font-semibold transition-colors border border-[#DCE2DF] flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <BookOpen className="w-4 h-4 text-[#005A87]" aria-hidden="true" />
-                    <span>Vereinsstatuten einsehen</span>
-                  </button>
+                  />
                 )}
               </div>
             </div>
@@ -342,7 +536,7 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
                     key={dept}
                     type="button"
                     aria-pressed={isSelected}
-                    onClick={() => setSelectedDept(dept)}
+                    onClick={() => handleSelectDept(dept)}
                     className={`min-h-9 px-3.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer border ${
                       isSelected
                         ? 'bg-[#0F1D26] text-white border-[#0F1D26]'
@@ -364,7 +558,7 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
                 type="search"
                 placeholder={t.about.searchBoardPlaceholder}
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 bg-white border border-[#DCE2DF] rounded-lg text-xs outline-none focus:border-[#005A87]"
               />
               <Search className="w-4 h-4 text-[#4A5862] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
@@ -379,57 +573,87 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
               ))}
             </div>
           ) : filteredMembers.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredMembers.map((member) => (
-                <article
-                  key={member.id}
-                  className="bg-white rounded-xl border border-[#DCE2DF] overflow-hidden program-card-shadow flex flex-col group"
-                >
-                  <div className="relative h-64 w-full overflow-hidden bg-[#EEF2F0]">
-                    <img
-                      src={member.imageUrl}
-                      alt={member.name}
-                      referrerPolicy="no-referrer"
-                      loading="lazy"
-                      className="w-full h-full object-cover object-top group-hover:scale-103 transition-transform duration-500"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0F1D26]/80 via-[#0F1D26]/20 to-transparent" />
-                    <div className="absolute bottom-3 left-4 right-4 text-white">
-                      <span className="inline-block px-2 py-0.5 rounded bg-[#005A87] text-[11px] font-semibold text-white mb-1">
-                        {member.department}
-                      </span>
-                      <h3 className="font-editorial text-xl font-semibold text-white leading-snug">
-                        {member.name}
-                      </h3>
-                    </div>
-                  </div>
-
-                  <div className="p-5 flex-1 flex flex-col justify-between">
-                    <div>
-                      <p className="text-xs font-bold text-[#005A87] mb-2">
-                        {member.role}
-                      </p>
-                      <p className="text-xs md:text-sm text-[#4A5862] leading-relaxed mb-4">
-                        {member.bio}
-                      </p>
-                    </div>
-
-                    <div className="pt-3 border-t border-[#EEF2F0] flex items-center justify-between">
-                      {member.email ? (
-                        <a
-                          href={`mailto:${member.email}`}
-                          className="inline-flex items-center gap-1.5 text-xs text-[#005A87] hover:underline font-medium"
+            <div
+              ref={boardGridRef}
+              className="relative grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+            >
+              {filteredMembers.map((member) => {
+                const imgKey = `${member.id}:${member.imageUrl || ''}`;
+                const showFallback = !member.imageUrl || Boolean(failedImages[imgKey]);
+                const objectPositionClass = getObjectPositionClass(member.imagePosition);
+                return (
+                  <article
+                    key={member.id}
+                    data-gsap="board-card"
+                    data-about-board-card
+                    data-flip-id={member.id}
+                    className="bg-white rounded-xl border border-[#DCE2DF] overflow-hidden program-card-shadow flex flex-col group"
+                  >
+                    <div className="relative aspect-[4/5] w-full overflow-hidden bg-[#EEF2F0]">
+                      {showFallback ? (
+                        <div
+                          role="img"
+                          aria-label={member.name}
+                          className="w-full h-full bg-gradient-to-br from-[#0F1D26] via-[#0B3954] to-[#005A87] flex items-center justify-center pb-12"
                         >
-                          <Mail className="w-3.5 h-3.5" aria-hidden="true" />
-                          <span className="truncate max-w-[180px]">{member.email}</span>
-                        </a>
+                          <div className="w-20 h-20 rounded-full bg-white/12 border border-white/25 backdrop-blur-xs flex items-center justify-center shadow-inner">
+                            <span className="font-editorial text-2xl font-semibold text-white tracking-wider">
+                              {getMemberInitials(member.name)}
+                            </span>
+                          </div>
+                        </div>
                       ) : (
-                        <span className="text-[11px] text-[#4A5862]">Vorstand VPI</span>
+                        <img
+                          src={member.imageUrl}
+                          alt={member.name}
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
+                          onError={() =>
+                            setFailedImages((prev) =>
+                              prev[imgKey] ? prev : { ...prev, [imgKey]: true }
+                            )
+                          }
+                          className={`w-full h-full object-cover ${objectPositionClass} group-hover:scale-103 transition-transform duration-500`}
+                        />
                       )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#0F1D26]/85 via-[#0F1D26]/20 to-transparent pointer-events-none" />
+                      <div className="absolute bottom-3 left-4 right-4 text-white">
+                        <span className="inline-block px-2 py-0.5 rounded bg-[#005A87] text-[11px] font-semibold text-white mb-1">
+                          {member.department}
+                        </span>
+                        <h3 className="font-editorial text-xl font-semibold text-white leading-snug">
+                          {member.name}
+                        </h3>
+                      </div>
                     </div>
-                  </div>
-                </article>
-              ))}
+
+                    <div className="p-5 flex-1 flex flex-col justify-between">
+                      <div>
+                        <p className="text-xs font-bold text-[#005A87] mb-2">
+                          {member.role}
+                        </p>
+                        <p className="text-xs md:text-sm text-[#4A5862] leading-relaxed mb-4">
+                          {member.bio}
+                        </p>
+                      </div>
+
+                      <div className="pt-3 border-t border-[#EEF2F0] flex items-center justify-between">
+                        {member.email ? (
+                          <a
+                            href={`mailto:${member.email}`}
+                            className="inline-flex items-center gap-1.5 text-xs text-[#005A87] hover:underline font-medium"
+                          >
+                            <Mail className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span className="truncate max-w-[180px]">{member.email}</span>
+                          </a>
+                        ) : (
+                          <span className="text-[11px] text-[#4A5862]">Vorstand VPI</span>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           ) : (
             <div className="text-center py-12 bg-white rounded-xl border border-[#DCE2DF] p-8">
@@ -448,6 +672,7 @@ export const AboutView: React.FC<AboutViewProps> = ({ onOpenStatuten }) => {
 
 export const ContactView: React.FC = () => {
   const { t } = useLanguage();
+  const rootRef = useRef<HTMLDivElement>(null);
   const [submitted, setSubmitted] = useState<boolean>(false);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -455,10 +680,41 @@ export const ContactView: React.FC = () => {
     setSubmitted(true);
   };
 
+  useGSAP(
+    () => {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+      const mm = gsap.matchMedia();
+      mm.add(
+        {
+          motionOk: '(prefers-reduced-motion: no-preference)',
+          reduceMotion: '(prefers-reduced-motion: reduce)'
+        },
+        (context) => {
+          const { motionOk, reduceMotion } = context.conditions ?? {};
+          if (!motionOk || reduceMotion) return;
+
+          const items = gsap.utils.toArray<HTMLElement>('[data-gsap="contact-reveal"]');
+          if (items.length > 0) {
+            gsap.from(items, {
+              y: 18,
+              opacity: 0,
+              duration: 0.65,
+              stagger: 0.08,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity'
+            });
+          }
+        }
+      );
+      return () => mm.revert();
+    },
+    { scope: rootRef }
+  );
+
   return (
-    <div className="w-full py-12">
+    <div ref={rootRef} className="w-full py-12">
       <div className="max-w-[1200px] mx-auto px-6">
-        <div className="mb-10">
+        <div data-gsap="contact-reveal" className="mb-10">
           <h1 className="display-hero font-semibold text-[#0F1D26] mb-2">{t.contact.title}</h1>
           <p className="text-base text-[#4A5862] max-w-[60ch]">
             {t.contact.subtitle}
@@ -467,7 +723,7 @@ export const ContactView: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Contact Details */}
-          <div className="lg:col-span-5 space-y-6">
+          <div data-gsap="contact-reveal" className="lg:col-span-5 space-y-6">
             <div className="bg-white p-6 rounded-xl border border-[#DCE2DF] space-y-5">
               <div className="flex items-start gap-4">
                 <div className="p-3 bg-[#E6F0F5] text-[#005A87] rounded-lg shrink-0">
@@ -560,7 +816,10 @@ export const ContactView: React.FC = () => {
           </div>
 
           {/* Contact Form */}
-          <div className="lg:col-span-7 bg-white p-8 rounded-xl border border-[#DCE2DF]">
+          <div
+            data-gsap="contact-reveal"
+            className="lg:col-span-7 bg-white p-8 rounded-xl border border-[#DCE2DF]"
+          >
             <h2 className="font-editorial text-2xl font-semibold text-[#0F1D26] mb-1.5">{t.contact.formTitle}</h2>
             <p className="text-sm text-[#4A5862] mb-6">
               {t.contact.formSubtitle}
@@ -573,13 +832,13 @@ export const ContactView: React.FC = () => {
                 <p className="text-sm text-[#4A5862]">
                   {t.contact.messageSentDesc}
                 </p>
-                <button
+                <RollingTextButton
                   type="button"
+                  magnetic={false}
                   onClick={() => setSubmitted(false)}
-                  className="min-h-10 px-4 py-2 bg-[#005A87] text-white rounded-lg text-xs font-semibold cursor-pointer"
-                >
-                  {t.contact.sendAnother}
-                </button>
+                  label={t.contact.sendAnother}
+                  className="min-h-10 px-4 py-2 bg-[#005A87] hover:bg-[#004569] text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer inline-flex items-center justify-center"
+                />
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -643,13 +902,13 @@ export const ContactView: React.FC = () => {
                   />
                 </div>
 
-                <button
+                <RollingTextButton
                   type="submit"
-                  className="w-full min-h-12 py-3.5 bg-[#005A87] text-white font-semibold rounded-lg hover:bg-[#004569] transition-colors flex items-center justify-center gap-2 text-sm cursor-pointer"
-                >
-                  <Send className="w-4 h-4" aria-hidden="true" />
-                  <span>{t.contact.submitMessage}</span>
-                </button>
+                  magnetic={false}
+                  leftIcon={<Send className="w-4 h-4 shrink-0" aria-hidden="true" />}
+                  label={t.contact.submitMessage}
+                  className="w-full min-h-12 py-3.5 px-6 bg-[#005A87] text-white font-semibold rounded-lg hover:bg-[#004569] transition-colors flex items-center justify-center gap-2 text-sm cursor-pointer"
+                />
               </form>
             )}
           </div>

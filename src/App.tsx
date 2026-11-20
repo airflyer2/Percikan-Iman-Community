@@ -9,41 +9,25 @@ import {
   Navigate,
   Route,
   Routes,
-  useLocation,
-  useNavigate,
   useInRouterContext
 } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { LanguageProvider } from './i18n';
-import { PublicLayout, normalizeScreenToPath, usePublicLayout } from './components/PublicLayout';
+import { PublicLayout, usePublicLayout } from './components/PublicLayout';
 import { HomeView } from './components/HomeView';
 import { ProgramsView } from './components/ProgramsView';
 import { DonateView } from './components/DonateView';
 import { GalleryView } from './components/GalleryView';
 import { AboutView, ContactView } from './components/AboutContactViews';
-import { BrandStyleguideView } from './components/BrandStyleguideView';
 import { AuthView } from './components/AuthView';
 import { MemberProfileView } from './components/MemberProfileView';
 import { GeneralAssemblyView } from './components/GeneralAssemblyView';
 
 const LazyAdminApp = React.lazy(() => import('./components/admin/AdminApp'));
 
-const HomeRoute: React.FC = () => {
-  const location = useLocation();
-  if (location.hash === '#brand') {
-    return <Navigate to="/brand" replace />;
-  }
-  return <HomeView />;
-};
-
 const AboutRoute: React.FC = () => {
   const layout = usePublicLayout();
   return <AboutView onOpenStatuten={layout?.onOpenStatuten} />;
-};
-
-const BrandRoute: React.FC = () => {
-  const navigate = useNavigate();
-  return <BrandStyleguideView onNavigate={(screen) => navigate(normalizeScreenToPath(screen))} />;
 };
 
 const AuthRoute: React.FC = () => {
@@ -82,13 +66,12 @@ function AppRoutes() {
   return (
     <Routes>
       <Route element={<PublicLayout />}>
-        <Route path="/" element={<HomeRoute />} />
+        <Route path="/" element={<HomeView />} />
         <Route path="/programs" element={<ProgramsView />} />
         <Route path="/donate" element={<DonateView />} />
         <Route path="/gallery" element={<GalleryView />} />
         <Route path="/about" element={<AboutRoute />} />
         <Route path="/contact" element={<ContactView />} />
-        <Route path="/brand" element={<BrandRoute />} />
         <Route path="/login" element={<AuthRoute />} />
         <Route path="/member" element={<MemberRoute />} />
         <Route path="/assembly" element={<AssemblyRoute />} />

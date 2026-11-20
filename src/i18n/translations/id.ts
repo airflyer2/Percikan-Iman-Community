@@ -7,7 +7,6 @@ export const id: TranslationDictionary = {
     donate: 'Donasi & Transparansi',
     about: 'Tentang Kami',
     contact: 'Kontak',
-    brandKit: 'Brand Kit & Sistem Desain',
     member: 'Portal Anggota',
     myMembership: 'Keanggotaan Saya',
     admin: 'Administrasi',
@@ -41,7 +40,15 @@ export const id: TranslationDictionary = {
     joinPortal: 'Gabung portal keanggotaan',
     featuredProgramsTitle: 'Program Unggulan',
     featuredProgramsSubtitle: 'Ikuti sesi kajian terdekat atau berpartisipasi sebagai relawan.',
-    viewAll6Programs: 'Lihat Semua 6 Program'
+    viewAll6Programs: 'Lihat Semua 6 Program',
+    nextEventStartsIn: 'Dimulai dalam',
+    nextEventLiveToday: 'Hari ini · sedang berlangsung',
+    nextEventPast: 'Acara sebelumnya',
+    nextEventDetails: 'Lihat detail',
+    countdownDay: 'hari',
+    countdownDays: 'hari',
+    countdownHours: 'jam',
+    countdownMinutes: 'mnt'
   },
   programs: {
     title: 'Program & Aktivitas Komunitas',

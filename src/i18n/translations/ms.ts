@@ -7,7 +7,6 @@ export const ms: TranslationDictionary = {
     donate: 'Derma & Ketelusan',
     about: 'Mengenai Kami',
     contact: 'Hubungi Kami',
-    brandKit: 'Kit Jenama & Sistem Rekaan',
     member: 'Portal Ahli',
     myMembership: 'Keahlian Saya',
     admin: 'Pentadbiran',
@@ -41,7 +40,15 @@ export const ms: TranslationDictionary = {
     joinPortal: 'Sertai portal ahli',
     featuredProgramsTitle: 'Program Pilihan',
     featuredProgramsSubtitle: 'Sertai sesi akan datang atau luangkan masa anda sebagai sukarelawan.',
-    viewAll6Programs: 'Lihat Semua 6 Program'
+    viewAll6Programs: 'Lihat Semua 6 Program',
+    nextEventStartsIn: 'Bermula dalam',
+    nextEventLiveToday: 'Hari ini · sedang berlangsung',
+    nextEventPast: 'Acara lalu',
+    nextEventDetails: 'Lihat butiran',
+    countdownDay: 'hari',
+    countdownDays: 'hari',
+    countdownHours: 'jam',
+    countdownMinutes: 'min'
   },
   programs: {
     title: 'Program & Aktiviti Komuniti',

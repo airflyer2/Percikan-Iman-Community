@@ -61,6 +61,8 @@ vi.mock('../src/lib/firestoreContent', () => ({
   deleteDestination: vi.fn(),
   saveBoardMember: vi.fn(),
   deleteBoardMember: vi.fn(),
+  reorderBoardMembers: vi.fn(),
+  computeReorderedBoardMembers: vi.fn((list: unknown[]) => list),
   saveSiteNotice: (...args: unknown[]) => mockSaveSiteNotice(...args),
   formatFirestoreError: (err: unknown, fallback: string) =>
     err instanceof Error ? err.message : fallback,

@@ -47,7 +47,10 @@ import {
 import {
   buildBoardMemberPayload,
   buildProgramPayload,
-  buildSiteNoticePayload
+  buildSiteNoticePayload,
+  computeReorderedBoardMembers,
+  reorderBoardMembers,
+  VALID_BOARD_IMAGE_POSITIONS
 } from '../src/lib/firestoreContent';
 import { batchUpdateVerifiedVoteWeights } from '../src/lib/authService';
 
@@ -252,15 +255,25 @@ describe('Domain Services Adversarial Hardening', () => {
     ).rejects.toThrow(/already been escalated/i);
   });
 
-  it('firestoreContent accepts brand linkScreen, skips empty-string board order, and checks UTF-8 byte length <= 2048', () => {
+  it('firestoreContent accepts gallery linkScreen, rejects removed brand linkScreen, skips empty-string board order, and checks UTF-8 byte length <= 2048', () => {
     const notice = buildSiteNoticePayload({
       enabled: true,
-      badge: 'Brand',
-      message: 'View styleguide',
+      badge: 'Gallery',
+      message: 'View event photos',
       linkText: 'Open',
-      linkScreen: 'brand'
+      linkScreen: 'gallery'
     });
-    expect(notice.linkScreen).toBe('brand');
+    expect(notice.linkScreen).toBe('gallery');
+
+    expect(() =>
+      buildSiteNoticePayload({
+        enabled: true,
+        badge: 'Brand',
+        message: 'View styleguide',
+        linkText: 'Open',
+        linkScreen: 'brand' as unknown as import('../src/types').NavScreen
+      })
+    ).toThrow(/Invalid site notice linkScreen/i);
 
     const board = buildBoardMemberPayload({
       id: 'bm-1',
@@ -315,5 +328,132 @@ describe('Domain Services Adversarial Hardening', () => {
         }
       ])
     ).resolves.toBeUndefined();
+  });
+
+  it('firestoreContent.buildBoardMemberPayload validates imagePosition (top/center/bottom), omits blank/undefined, and rejects invalid values', () => {
+    expect(VALID_BOARD_IMAGE_POSITIONS).toEqual(['top', 'center', 'bottom']);
+
+    const baseMember = {
+      id: 'bm-pos',
+      name: 'Board Member',
+      role: 'Chair',
+      department: 'Executive',
+      imageUrl: 'https://example.com/chair.jpg',
+      bio: 'Community leader'
+    };
+
+    for (const pos of VALID_BOARD_IMAGE_POSITIONS) {
+      const payload = buildBoardMemberPayload({ ...baseMember, imagePosition: pos });
+      expect(payload.imagePosition).toBe(pos);
+    }
+
+    const trimmedPayload = buildBoardMemberPayload({
+      ...baseMember,
+      imagePosition: '  center  ' as unknown as import('../src/types').BoardImagePosition
+    });
+    expect(trimmedPayload.imagePosition).toBe('center');
+
+    const omittedUndefined = buildBoardMemberPayload({ ...baseMember, imagePosition: undefined });
+    expect('imagePosition' in omittedUndefined).toBe(false);
+
+    const omittedEmpty = buildBoardMemberPayload({
+      ...baseMember,
+      imagePosition: '   ' as unknown as import('../src/types').BoardImagePosition
+    });
+    expect('imagePosition' in omittedEmpty).toBe(false);
+
+    expect(() =>
+      buildBoardMemberPayload({
+        ...baseMember,
+        imagePosition: 'left' as unknown as import('../src/types').BoardImagePosition
+      })
+    ).toThrow('Board member imagePosition must be top, center, or bottom.');
+  });
+
+  it('firestoreContent.computeReorderedBoardMembers and reorderBoardMembers move cards forward/backward and renumber order 1..N', async () => {
+    const members = [
+      {
+        id: 'bm-1',
+        name: 'First',
+        role: 'President',
+        department: 'Executive',
+        imageUrl: 'https://example.com/1.jpg',
+        imagePosition: 'top' as const,
+        bio: 'Bio 1',
+        order: 10
+      },
+      {
+        id: 'bm-2',
+        name: 'Second',
+        role: 'Secretary',
+        department: 'Executive',
+        imageUrl: 'https://example.com/2.jpg',
+        imagePosition: 'center' as const,
+        bio: 'Bio 2',
+        order: 20
+      },
+      {
+        id: 'bm-3',
+        name: 'Third',
+        role: 'Treasurer',
+        department: 'Finance',
+        imageUrl: 'https://example.com/3.jpg',
+        imagePosition: 'bottom' as const,
+        bio: 'Bio 3',
+        order: 30
+      }
+    ];
+
+    // Forward move: bm-1 -> bm-3
+    const movedForward = computeReorderedBoardMembers(members, 'bm-1', 'bm-3');
+    expect(movedForward.map((m) => [m.id, m.order])).toEqual([
+      ['bm-2', 1],
+      ['bm-3', 2],
+      ['bm-1', 3]
+    ]);
+    // Input array must not be mutated
+    expect(members.map((m) => [m.id, m.order])).toEqual([
+      ['bm-1', 10],
+      ['bm-2', 20],
+      ['bm-3', 30]
+    ]);
+
+    // Backward move: bm-3 -> bm-1
+    const movedBackward = computeReorderedBoardMembers(members, 'bm-3', 'bm-1');
+    expect(movedBackward.map((m) => [m.id, m.order])).toEqual([
+      ['bm-3', 1],
+      ['bm-1', 2],
+      ['bm-2', 3]
+    ]);
+
+    // No-op when same ID or missing ID
+    expect(computeReorderedBoardMembers(members, 'bm-2', 'bm-2')).toBe(members);
+    expect(computeReorderedBoardMembers(members, 'missing', 'bm-2')).toBe(members);
+    expect(computeReorderedBoardMembers(members, 'bm-2', 'missing')).toBe(members);
+
+    // Atomic writeBatch persistence via reorderBoardMembers
+    const batchOps: Array<{ path: string; data: Record<string, unknown> }> = [];
+    const mockBatch = {
+      set: vi.fn((ref: { path: string }, data: Record<string, unknown>) => {
+        batchOps.push({ path: ref.path, data });
+      }),
+      commit: vi.fn(async () => {})
+    };
+    mockWriteBatch.mockReturnValue(mockBatch);
+
+    const saved = await reorderBoardMembers(movedBackward);
+    expect(mockWriteBatch).toHaveBeenCalledTimes(1);
+    expect(mockBatch.set).toHaveBeenCalledTimes(3);
+    expect(mockBatch.commit).toHaveBeenCalledTimes(1);
+    expect(saved.map((m) => [m.id, m.order, m.imagePosition])).toEqual([
+      ['bm-3', 1, 'bottom'],
+      ['bm-1', 2, 'top'],
+      ['bm-2', 3, 'center']
+    ]);
+    expect(batchOps.map((op) => [op.path, op.data.order])).toEqual([
+      ['boardMembers/bm-3', 1],
+      ['boardMembers/bm-1', 2],
+      ['boardMembers/bm-2', 3]
+    ]);
   });
 });

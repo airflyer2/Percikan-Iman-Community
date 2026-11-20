@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { gsap } from 'gsap';
 import { CommunityEvent } from '../types';
 import { isSafeHttpUrl } from '../lib/urlValidation';
+import { RollingTextButton } from './RollingTextButton';
 import {
   Calendar as CalendarIcon,
   CalendarDays,
@@ -96,12 +98,15 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'calendar' | 'agenda'>('calendar');
 
-  // Modal State
+  // Modal & Hover Preview State
   const [selectedEventModal, setSelectedEventModal] = useState<CommunityEvent | null>(null);
   const [rsvpSuccess, setRsvpSuccess] = useState<string | null>(null);
+  const [hoveredDate, setHoveredDate] = useState<string | null>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   // Month navigation
   const handlePrevMonth = () => {
+    setHoveredDate(null);
     if (currentMonth === 0) {
       setCurrentMonth(11);
       setCurrentYear((y) => y - 1);
@@ -111,6 +116,7 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
   };
 
   const handleNextMonth = () => {
+    setHoveredDate(null);
     if (currentMonth === 11) {
       setCurrentMonth(0);
       setCurrentYear((y) => y + 1);
@@ -120,6 +126,7 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
   };
 
   const handleGoToday = () => {
+    setHoveredDate(null);
     const today = getLocalTodayParts();
     setCurrentYear(today.year);
     setCurrentMonth(today.month);
@@ -217,6 +224,35 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
     return [...filteredEvents].sort((a, b) => a.date.localeCompare(b.date));
   }, [filteredEvents]);
 
+  const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+  const monthEventCount = useMemo(
+    () => filteredEvents.filter((e) => e.date.startsWith(monthPrefix)).length,
+    [filteredEvents, monthPrefix]
+  );
+
+  // Clear hover preview if filters remove the hovered date's events
+  useEffect(() => {
+    if (hoveredDate && !(eventsByDate.get(hoveredDate)?.length)) {
+      setHoveredDate(null);
+    }
+  }, [hoveredDate, eventsByDate]);
+
+  // Animate hover preview popover entrance with GSAP
+  useEffect(() => {
+    if (!hoveredDate || !popoverRef.current) return;
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const tween = gsap.fromTo(
+      popoverRef.current,
+      { opacity: 0, y: 8, scale: 0.96 },
+      { opacity: 1, y: 0, scale: 1, duration: 0.22, ease: 'power3.out', overwrite: 'auto' }
+    );
+    return () => {
+      tween.kill();
+    };
+  }, [hoveredDate]);
+
   // Safe date formatter avoiding "Invalid Date" crashes
   const formatEventDate = (
     dateStr: string,
@@ -285,7 +321,10 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
   };
 
   return (
-    <section id="community-event-calendar" className="py-16 md:py-20 bg-white border-y border-[#e6eeff]">
+    <section
+      id="community-event-calendar"
+      className="py-16 md:py-20 bg-white border-y border-[#e6eeff] overflow-visible"
+    >
       <div className="max-w-[1200px] mx-auto px-6">
         {/* Section Header */}
         <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
@@ -308,7 +347,10 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
             <div className="p-1 bg-[#f0f4f9] rounded-xl flex items-center border border-[#bec7d2]/40">
               <button
                 type="button"
-                onClick={() => setViewMode('calendar')}
+                onClick={() => {
+                  setHoveredDate(null);
+                  setViewMode('calendar');
+                }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                   viewMode === 'calendar'
                     ? 'bg-white text-[#006191] shadow-2xs'
@@ -320,7 +362,10 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => setViewMode('agenda')}
+                onClick={() => {
+                  setHoveredDate(null);
+                  setViewMode('agenda');
+                }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                   viewMode === 'agenda'
                     ? 'bg-white text-[#006191] shadow-2xs'
@@ -424,7 +469,7 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
         ) : viewMode === 'calendar' ? (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             {/* Left: Monthly Calendar Widget (7 Cols) */}
-            <div className="lg:col-span-7 bg-white p-6 rounded-2xl border border-[#bec7d2]/50 shadow-xs">
+            <div className="lg:col-span-7 bg-white p-6 rounded-2xl border border-[#bec7d2]/50 shadow-xs overflow-visible relative">
               {/* Month Selector Bar */}
               <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
                 <div className="flex items-center gap-2">
@@ -436,7 +481,7 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
                       {MONTH_NAMES[currentMonth]} {currentYear}
                     </h3>
                     <p className="text-xs text-[#566771]">
-                      {filteredEvents.filter((e) => e.date.startsWith(`${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`)).length} events this month
+                      {monthEventCount} {monthEventCount === 1 ? 'event' : 'events'} this month
                     </p>
                   </div>
                 </div>
@@ -483,72 +528,217 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
               </div>
 
               {/* Month Grid Cells */}
-              <div className="grid grid-cols-7 gap-1.5">
-                {calendarDays.map((cell) => {
+              <div
+                className="grid grid-cols-7 gap-1.5 overflow-visible relative"
+                onPointerLeave={() => setHoveredDate(null)}
+              >
+                {calendarDays.map((cell, cellIdx) => {
                   const isSelected = cell.dateStr === selectedDate;
                   const isToday = cell.dateStr === todayParts.dateStr;
                   const hasEvents = cell.events.length > 0;
+                  const isHovered = hasEvents && hoveredDate === cell.dateStr;
+                  const rowIdx = Math.floor(cellIdx / 7);
+                  const colIdx = cellIdx % 7;
+                  const placeBelow = rowIdx === 0;
+                  const horizPositionClass =
+                    colIdx <= 1
+                      ? 'left-0'
+                      : colIdx >= 5
+                        ? 'right-0'
+                        : 'left-1/2 -translate-x-1/2';
+                  const caretHorizClass =
+                    colIdx <= 1
+                      ? 'left-6'
+                      : colIdx >= 5
+                        ? 'right-6'
+                        : 'left-1/2 -translate-x-1/2';
 
                   return (
-                    <button
-                      type="button"
+                    <div
                       key={cell.dateStr}
-                      onClick={() => setSelectedDate(cell.dateStr)}
-                      className={`min-h-[72px] sm:min-h-[82px] p-1.5 rounded-xl text-left flex flex-col justify-between transition-all cursor-pointer border relative group ${
-                        isSelected
-                          ? 'bg-[#eff3ff] border-[#006191] ring-2 ring-[#006191]/30 shadow-2xs'
-                          : hasEvents
-                          ? 'bg-white border-[#bec7d2]/60 hover:border-[#006191]/60 hover:bg-[#f9f9ff]'
-                          : cell.isCurrentMonth
-                          ? 'bg-[#fbfcfe] border-transparent hover:bg-gray-50'
-                          : 'bg-gray-50/50 border-transparent opacity-40 hover:opacity-75'
-                      }`}
+                      className={`relative overflow-visible ${isHovered ? 'z-30' : ''}`}
                     >
-                      {/* Top Day Number & Badges */}
-                      <div className="flex items-center justify-between w-full">
-                        <span
-                          className={`text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center ${
-                            isToday
-                              ? 'bg-[#006191] text-white shadow-2xs'
-                              : isSelected
-                              ? 'text-[#006191] font-extrabold'
-                              : cell.isCurrentMonth
-                              ? 'text-[#121c2a]'
-                              : 'text-gray-400'
-                          }`}
-                        >
-                          {cell.dayNum}
-                        </span>
-
-                        {hasEvents && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-[#006191]/10 text-[#006191]">
-                            {cell.events.length}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedDate(cell.dateStr)}
+                        onPointerEnter={(e) => {
+                          if (e.pointerType !== 'touch' && hasEvents) {
+                            setHoveredDate(cell.dateStr);
+                          }
+                        }}
+                        onPointerLeave={() => {
+                          setHoveredDate((prev) => (prev === cell.dateStr ? null : prev));
+                        }}
+                        onFocus={() => {
+                          if (hasEvents) {
+                            setHoveredDate(cell.dateStr);
+                          }
+                        }}
+                        onBlur={() => {
+                          setHoveredDate((prev) => (prev === cell.dateStr ? null : prev));
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            setHoveredDate(null);
+                          }
+                        }}
+                        aria-describedby={isHovered ? `calendar-popover-${cell.dateStr}` : undefined}
+                        className={`w-full h-full min-h-[72px] sm:min-h-[82px] p-1.5 rounded-xl text-left flex flex-col justify-between transition-all cursor-pointer border relative group ${
+                          isSelected
+                            ? 'bg-[#eff3ff] border-[#006191] ring-2 ring-[#006191]/30 shadow-2xs'
+                            : hasEvents
+                            ? 'bg-white border-[#bec7d2]/60 hover:border-[#006191]/60 hover:bg-[#f9f9ff]'
+                            : cell.isCurrentMonth
+                            ? 'bg-[#fbfcfe] border-transparent hover:bg-gray-50'
+                            : 'bg-gray-50/50 border-transparent opacity-40 hover:opacity-75'
+                        }`}
+                      >
+                        {/* Top Day Number & Badges */}
+                        <div className="flex items-center justify-between w-full">
+                          <span
+                            className={`text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center ${
+                              isToday
+                                ? 'bg-[#006191] text-white shadow-2xs'
+                                : isSelected
+                                ? 'text-[#006191] font-extrabold'
+                                : cell.isCurrentMonth
+                                ? 'text-[#121c2a]'
+                                : 'text-gray-400'
+                            }`}
+                          >
+                            {cell.dayNum}
                           </span>
-                        )}
-                      </div>
 
-                      {/* Event Indicator Pills inside cell */}
-                      <div className="w-full space-y-1 mt-1">
-                        {cell.events.slice(0, 2).map((evt) => {
-                          const style = CATEGORY_COLORS[evt.category];
-                          return (
-                            <div
-                              key={evt.id}
-                              className={`text-[9px] font-medium truncate px-1 py-0.5 rounded leading-tight flex items-center gap-1 ${style.bg} ${style.text}`}
-                              title={`${evt.time} - ${evt.title}`}
-                            >
-                              <span className={`w-1.5 h-1.5 rounded-full ${style.dot} shrink-0`}></span>
-                              <span className="truncate">{evt.title}</span>
+                          {hasEvents && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-[#006191]/10 text-[#006191]">
+                              {cell.events.length}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Event Indicator Pills inside cell */}
+                        <div className="w-full space-y-1 mt-1">
+                          {cell.events.slice(0, 2).map((evt) => {
+                            const style =
+                              CATEGORY_COLORS[evt.category] ??
+                              CATEGORY_COLORS['Community Gathering'];
+                            return (
+                              <div
+                                key={evt.id}
+                                className={`text-[9px] font-medium truncate px-1 py-0.5 rounded leading-tight flex items-center gap-1 ${style.bg} ${style.text}`}
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${style.dot} shrink-0`}
+                                ></span>
+                                <span className="truncate">{evt.title}</span>
+                              </div>
+                            );
+                          })}
+                          {cell.events.length > 2 && (
+                            <p className="text-[9px] text-[#566771] font-semibold pl-1">
+                              +{cell.events.length - 2} more
+                            </p>
+                          )}
+                        </div>
+                      </button>
+
+                      {/* Floating Hover / Focus Event Preview Popover */}
+                      {isHovered && (
+                        <div
+                          id={`calendar-popover-${cell.dateStr}`}
+                          role="tooltip"
+                          data-testid="calendar-date-popover"
+                          className={`pointer-events-none absolute z-40 w-72 sm:w-80 ${
+                            placeBelow ? 'top-full mt-2.5' : 'bottom-full mb-2.5'
+                          } ${horizPositionClass}`}
+                        >
+                          <div
+                            ref={popoverRef}
+                            className="relative bg-[#0F1D26] text-white rounded-xl border border-white/15 shadow-[0_20px_44px_-14px_rgba(15,29,38,0.62)] p-3.5 text-left"
+                          >
+                            <span
+                              aria-hidden="true"
+                              className={`absolute w-2.5 h-2.5 rotate-45 bg-[#0F1D26] ${caretHorizClass} ${
+                                placeBelow
+                                  ? '-top-[5px] border-l border-t border-white/15'
+                                  : '-bottom-[5px] border-r border-b border-white/15'
+                              }`}
+                            />
+
+                            {/* Readable Date Header */}
+                            <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-white/10">
+                              <p className="text-xs font-bold text-[#9CC4E4] truncate">
+                                {formatEventDate(cell.dateStr, {
+                                  weekday: 'short',
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric'
+                                })}
+                              </p>
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-white/10 text-white/90 shrink-0">
+                                {cell.events.length}{' '}
+                                {cell.events.length === 1 ? 'event' : 'events'}
+                              </span>
                             </div>
-                          );
-                        })}
-                        {cell.events.length > 2 && (
-                          <p className="text-[9px] text-[#566771] font-semibold pl-1">
-                            +{cell.events.length - 2} more
-                          </p>
-                        )}
-                      </div>
-                    </button>
+
+                            {/* Up to 3 Events Preview */}
+                            <ul className="space-y-2.5">
+                              {cell.events.slice(0, 3).map((evt) => {
+                                const evtStyle =
+                                  CATEGORY_COLORS[evt.category] ??
+                                  CATEGORY_COLORS['Community Gathering'];
+                                return (
+                                  <li key={evt.id} className="flex items-start gap-2">
+                                    <span
+                                      className={`w-2 h-2 rounded-full ${evtStyle.dot} shrink-0 mt-1.5`}
+                                      aria-hidden="true"
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-xs font-semibold text-white leading-snug line-clamp-1">
+                                        {evt.title}
+                                      </p>
+                                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-[#C9D4DC]">
+                                        {evt.time && (
+                                          <span className="inline-flex items-center gap-1 shrink-0">
+                                            <Clock
+                                              className="w-3 h-3 text-[#9CC4E4]"
+                                              aria-hidden="true"
+                                            />
+                                            <span>{evt.time}</span>
+                                          </span>
+                                        )}
+                                        {evt.location && (
+                                          <span className="inline-flex items-center gap-1 min-w-0">
+                                            <MapPin
+                                              className="w-3 h-3 text-rose-400 shrink-0"
+                                              aria-hidden="true"
+                                            />
+                                            <span className="truncate">{evt.location}</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+
+                            {cell.events.length > 3 && (
+                              <p className="mt-2 text-[11px] font-medium text-[#9CC4E4]">
+                                +{cell.events.length - 3} more{' '}
+                                {cell.events.length - 3 === 1 ? 'event' : 'events'}
+                              </p>
+                            )}
+
+                            {/* Footer Hint */}
+                            <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-[#9CC4E4]">
+                              <span>Click to view details</span>
+                              <ArrowRight className="w-3 h-3 shrink-0" aria-hidden="true" />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -666,14 +856,13 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
 
                         {/* Action Buttons */}
                         <div className="pt-2 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2">
-                          <button
-                            type="button"
+                          <RollingTextButton
+                            label="Event Details & RSVP"
+                            magnetic={false}
+                            rightIcon={<ArrowRight className="w-3 h-3 shrink-0" aria-hidden="true" />}
                             onClick={() => setSelectedEventModal(evt)}
-                            className="px-3.5 py-2 bg-[#006191] hover:bg-[#007bb6] text-white text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
-                          >
-                            <span>Event Details &amp; RSVP</span>
-                            <ArrowRight className="w-3 h-3" />
-                          </button>
+                            className="px-3.5 py-2 bg-[#006191] hover:bg-[#007bb6] text-white text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer inline-flex items-center gap-1.5"
+                          />
 
                           <div className="flex items-center gap-1.5">
                             <a
@@ -711,21 +900,24 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
                   <p className="text-xs text-[#566771] max-w-xs mx-auto">
                     There are no registered sessions on this particular date. Select another day with an indicator dot, or check our upcoming agenda.
                   </p>
-                  <button
-                    type="button"
+                  <RollingTextButton
+                    label="Jump to Next Upcoming Event"
+                    magnetic={false}
+                    rightIcon={<ArrowRight className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
                     onClick={() => {
                       const nextEvt = upcomingEvents.find((e) => e.date >= selectedDate);
-                      if (nextEvt) {
-                        setSelectedDate(nextEvt.date);
-                      } else if (upcomingEvents.length > 0) {
-                        setSelectedDate(upcomingEvents[0].date);
+                      const target = nextEvt ?? upcomingEvents[0];
+                      if (target) {
+                        setSelectedDate(target.date);
+                        const [y, m] = target.date.split('-').map(Number);
+                        if (!Number.isNaN(y) && !Number.isNaN(m)) {
+                          setCurrentYear(y);
+                          setCurrentMonth(m - 1);
+                        }
                       }
                     }}
                     className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#eff3ff] hover:bg-[#d3e5f1] text-[#006191] rounded-xl text-xs font-bold transition-colors cursor-pointer"
-                  >
-                    <span>Jump to Next Upcoming Event</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
+                  />
                 </div>
               )}
             </div>
@@ -815,14 +1007,13 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
                         </div>
 
                         <div className="pt-2 flex items-center justify-between gap-2">
-                          <button
-                            type="button"
+                          <RollingTextButton
+                            label="Details & RSVP"
+                            magnetic={false}
+                            rightIcon={<ArrowRight className="w-3 h-3 shrink-0" aria-hidden="true" />}
                             onClick={() => setSelectedEventModal(evt)}
-                            className="flex-1 py-2 bg-[#006191] hover:bg-[#007bb6] text-white rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center justify-center gap-1"
-                          >
-                            <span>Details &amp; RSVP</span>
-                            <ArrowRight className="w-3 h-3" />
-                          </button>
+                            className="flex-1 py-2 bg-[#006191] hover:bg-[#007bb6] text-white rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer inline-flex items-center justify-center gap-1"
+                          />
                           <a
                             href={generateGoogleCalendarUrl(evt)}
                             target="_blank"
@@ -947,17 +1138,16 @@ export const EventCalendar: React.FC<EventCalendarProps> = ({
 
             {/* Actions */}
             <div className="space-y-2 pt-2 border-t border-gray-100">
-              <button
-                type="button"
+              <RollingTextButton
+                label="Confirm Attendance (RSVP)"
+                magnetic={false}
+                leftIcon={<CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />}
                 onClick={() => {
                   handleRsvp(selectedEventModal);
                   setSelectedEventModal(null);
                 }}
-                className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Confirm Attendance (RSVP)</span>
-              </button>
+                className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
+              />
 
               <div className="grid grid-cols-2 gap-2">
                 <a

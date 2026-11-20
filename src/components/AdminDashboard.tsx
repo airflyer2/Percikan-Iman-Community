@@ -1,9 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { gsap } from 'gsap';
+import { Flip } from 'gsap/Flip';
+import { useGSAP } from '@gsap/react';
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
   CheckCircle2,
+  Crop,
   Download,
   Edit2,
+  GripVertical,
   Landmark,
   Mail,
   MapPin,
@@ -19,6 +26,7 @@ import { BOARD_DEPARTMENTS, PRESET_BOARD_AVATARS } from '../constants';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../i18n';
 import {
+  computeReorderedBoardMembers,
   deleteBoardMember,
   deleteCampaign,
   deleteDestination,
@@ -27,6 +35,7 @@ import {
   isValidEmailFormat,
   isValidFirestoreImageUrl,
   normalizeSafeHttpUrl,
+  reorderBoardMembers,
   saveBoardMember,
   saveCampaign,
   saveDestination,
@@ -47,6 +56,7 @@ import {
 } from '../lib/firestoreDonations';
 import { isSafeHttpUrl } from '../lib/urlValidation';
 import {
+  BoardImagePosition,
   BoardMember,
   Campaign,
   ContributionDestination,
@@ -57,6 +67,45 @@ import {
   SiteNotice
 } from '../types';
 import { PhotoUpload } from './PhotoUpload';
+
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  gsap.registerPlugin(Flip, useGSAP);
+}
+
+const BOARD_IMAGE_POSITIONS: ReadonlyArray<{
+  value: BoardImagePosition;
+  label: string;
+  shortLabel: string;
+}> = [
+  { value: 'top', label: 'Top (Faces)', shortLabel: 'Top' },
+  { value: 'center', label: 'Center', shortLabel: 'Center' },
+  { value: 'bottom', label: 'Bottom', shortLabel: 'Bottom' }
+];
+
+function normalizeBoardImagePos(pos?: BoardImagePosition): BoardImagePosition {
+  if (pos === 'center' || pos === 'bottom') return pos;
+  return 'top';
+}
+
+function getBoardImagePosClass(pos?: BoardImagePosition): string {
+  if (pos === 'center') return 'object-center';
+  if (pos === 'bottom') return 'object-bottom';
+  return 'object-top';
+}
+
+function getNextBoardImagePos(pos?: BoardImagePosition): BoardImagePosition {
+  const current = normalizeBoardImagePos(pos);
+  if (current === 'top') return 'center';
+  if (current === 'center') return 'bottom';
+  return 'top';
+}
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return true;
+  }
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
 
 function useOptionalAuth() {
   try {
@@ -108,8 +157,7 @@ const NOTICE_LINK_SCREENS = [
   'contact',
   'login',
   'member',
-  'assembly',
-  'brand'
+  'assembly'
 ] as const;
 
 const DEFAULT_NOTICE: SiteNotice = {
@@ -293,6 +341,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsCreatingBoardMember(false);
     setIsManualDonationModalOpen(false);
     setModalError(null);
+    setDraggedBoardId(null);
+    setDragOverBoardId(null);
   }, [activeSection]);
 
   useEffect(() => {
@@ -324,10 +374,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isCreatingBoardMember, setIsCreatingBoardMember] = useState(false);
   const [boardMemberForm, setBoardMemberForm] = useState<Partial<BoardMember>>({
     department: 'Executive Leadership',
-    imageUrl: PRESET_BOARD_AVATARS[0].url
+    imageUrl: PRESET_BOARD_AVATARS[0].url,
+    imagePosition: 'top'
   });
   const [boardSearchQuery, setBoardSearchQuery] = useState('');
   const [boardFilterDept, setBoardFilterDept] = useState('All Departments');
+  const [draggedBoardId, setDraggedBoardId] = useState<string | null>(null);
+  const [dragOverBoardId, setDragOverBoardId] = useState<string | null>(null);
+  const [isReorderingBoard, setIsReorderingBoard] = useState(false);
+  const [savingFocalIds, setSavingFocalIds] = useState<Record<string, boolean>>({});
+  const isReorderingRef = useRef(false);
+  const savingFocalIdsRef = useRef<Set<string>>(new Set());
+  const boardGridRef = useRef<HTMLDivElement>(null);
+  const boardFlipStateRef = useRef<Flip.FlipState | null>(null);
 
   // Program State
   const [programSearch, setProgramSearch] = useState('');
@@ -437,6 +496,89 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       return matchDept && matchQuery;
     });
   }, [boardMembers, boardFilterDept, boardSearchQuery]);
+
+  const canReorderBoard =
+    boardFilterDept === 'All Departments' && !boardSearchQuery.trim();
+
+  const captureBoardFlipState = () => {
+    if (prefersReducedMotion() || !boardGridRef.current) return;
+    try {
+      const cards = boardGridRef.current.querySelectorAll('[data-admin-board-card]');
+      if (cards.length > 0) {
+        boardFlipStateRef.current = Flip.getState(cards);
+      }
+    } catch {
+      boardFlipStateRef.current = null;
+    }
+  };
+
+  useGSAP(
+    () => {
+      if (!boardFlipStateRef.current) return;
+      const state = boardFlipStateRef.current;
+      boardFlipStateRef.current = null;
+      if (prefersReducedMotion() || !boardGridRef.current) return;
+
+      const targets = boardGridRef.current.querySelectorAll('[data-admin-board-card]');
+      Flip.from(state, {
+        targets,
+        duration: 0.42,
+        ease: 'power3.out',
+        stagger: 0.03,
+        absolute: true,
+        nested: true,
+        onEnter: (els) =>
+          gsap.fromTo(
+            els,
+            { opacity: 0, scale: 0.94, y: 12 },
+            {
+              opacity: 1,
+              scale: 1,
+              y: 0,
+              duration: 0.34,
+              ease: 'power2.out',
+              clearProps: 'transform,opacity'
+            }
+          ),
+        onLeave: (els) =>
+          gsap.to(els, {
+            opacity: 0,
+            scale: 0.94,
+            duration: 0.24,
+            ease: 'power2.in'
+          })
+      });
+    },
+    {
+      scope: boardGridRef,
+      dependencies: [boardFilterDept, boardSearchQuery, boardMembers]
+    }
+  );
+
+  const handleBoardFilterDeptChange = (nextDept: string) => {
+    if (nextDept === boardFilterDept) return;
+    captureBoardFlipState();
+    setDraggedBoardId(null);
+    setDragOverBoardId(null);
+    setBoardFilterDept(nextDept);
+  };
+
+  const handleBoardSearchChange = (nextQuery: string) => {
+    if (nextQuery === boardSearchQuery) return;
+    captureBoardFlipState();
+    setDraggedBoardId(null);
+    setDragOverBoardId(null);
+    setBoardSearchQuery(nextQuery);
+  };
+
+  const handleResetBoardFilters = () => {
+    if (boardFilterDept === 'All Departments' && !boardSearchQuery) return;
+    captureBoardFlipState();
+    setDraggedBoardId(null);
+    setDragOverBoardId(null);
+    setBoardFilterDept('All Departments');
+    setBoardSearchQuery('');
+  };
 
   // --- Program Handlers ---
   const handleOpenCreateProgram = () => {
@@ -724,6 +866,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       role: '',
       department: 'Executive Leadership',
       imageUrl: PRESET_BOARD_AVATARS[0].url,
+      imagePosition: 'top',
       bio: '',
       email: '',
       order: boardMembers.length + 1
@@ -735,7 +878,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleOpenEditBoardMember = (member: BoardMember) => {
     setActionError(null);
     setModalError(null);
-    setBoardMemberForm({ ...member });
+    setBoardMemberForm({
+      ...member,
+      imagePosition: normalizeBoardImagePos(member.imagePosition)
+    });
     setEditingBoardMember(member);
     setIsCreatingBoardMember(false);
   };
@@ -762,6 +908,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       role: boardMemberForm.role.trim(),
       department: boardMemberForm.department || 'Executive Leadership',
       imageUrl: normalizeSafeHttpUrl(boardMemberForm.imageUrl || ''),
+      imagePosition: normalizeBoardImagePos(boardMemberForm.imagePosition),
       bio: (boardMemberForm.bio || '').trim(),
       email: boardMemberForm.email?.trim() || undefined,
       phone: boardMemberForm.phone?.trim() || undefined,
@@ -781,6 +928,72 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } finally {
       isSavingRef.current = false;
       setIsSaving(false);
+    }
+  };
+
+  const handleCycleBoardImagePosition = async (member: BoardMember) => {
+    if (savingFocalIdsRef.current.has(member.id) || isReorderingRef.current) return;
+    const prevPosition = member.imagePosition;
+    const nextPosition = getNextBoardImagePos(member.imagePosition);
+    const updatedMember: BoardMember = { ...member, imagePosition: nextPosition };
+
+    savingFocalIdsRef.current.add(member.id);
+    setSavingFocalIds((prev) => ({ ...prev, [member.id]: true }));
+    setActionError(null);
+    setFsBoardMembers((prev) =>
+      prev.map((m) => (m.id === member.id ? updatedMember : m))
+    );
+
+    try {
+      await saveBoardMember(updatedMember);
+      const shortLabel =
+        BOARD_IMAGE_POSITIONS.find((opt) => opt.value === nextPosition)?.shortLabel ?? 'Top';
+      showToast(`Portrait crop for "${member.name}" set to ${shortLabel}.`);
+    } catch (err) {
+      setFsBoardMembers((prev) =>
+        prev.map((m) =>
+          m.id === member.id ? { ...m, imagePosition: prevPosition } : m
+        )
+      );
+      setActionError(
+        formatFirestoreError(err, 'Failed to update portrait crop position.')
+      );
+    } finally {
+      savingFocalIdsRef.current.delete(member.id);
+      setSavingFocalIds((prev) => {
+        const next = { ...prev };
+        delete next[member.id];
+        return next;
+      });
+    }
+  };
+
+  const handleReorderBoardMembers = async (fromId: string, toId: string) => {
+    if (!canReorderBoard || isReorderingRef.current || !fromId || !toId || fromId === toId) {
+      return;
+    }
+    const prevMembers = fsBoardMembers;
+    const nextMembers = computeReorderedBoardMembers(prevMembers, fromId, toId);
+    if (nextMembers === prevMembers) return;
+
+    captureBoardFlipState();
+    isReorderingRef.current = true;
+    setIsReorderingBoard(true);
+    setActionError(null);
+    setFsBoardMembers(nextMembers);
+
+    try {
+      await reorderBoardMembers(nextMembers);
+      showToast('Updated board member display order.');
+    } catch (err) {
+      captureBoardFlipState();
+      setFsBoardMembers(prevMembers);
+      setActionError(
+        formatFirestoreError(err, 'Failed to save board member order.')
+      );
+    } finally {
+      isReorderingRef.current = false;
+      setIsReorderingBoard(false);
     }
   };
 
@@ -1362,40 +1575,78 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* ========================================================================= */}
       {activeSection === 'board' && (
         <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-[#bec7d2]/60 shadow-2xs">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-grow">
-              <div className="relative flex-grow max-w-md">
-                <input
-                  type="text"
-                  value={boardSearchQuery}
-                  onChange={(e) => setBoardSearchQuery(e.target.value)}
-                  placeholder="Search board members by name, title, or bio..."
-                  className="w-full pl-9 pr-4 py-2.5 bg-[#f9f9ff] border border-[#bec7d2] rounded-lg text-sm outline-none focus:border-[#006191]"
-                />
-                <Search className="w-4 h-4 text-[#566771] absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="bg-white p-4 rounded-xl border border-[#bec7d2]/60 shadow-2xs space-y-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-grow">
+                <div className="relative flex-grow max-w-md">
+                  <input
+                    type="text"
+                    value={boardSearchQuery}
+                    onChange={(e) => handleBoardSearchChange(e.target.value)}
+                    placeholder="Search board members by name, title, or bio..."
+                    className="w-full pl-9 pr-4 py-2.5 bg-[#f9f9ff] border border-[#bec7d2] rounded-lg text-sm outline-none focus:border-[#006191]"
+                  />
+                  <Search className="w-4 h-4 text-[#566771] absolute left-3 top-1/2 -translate-y-1/2" />
+                </div>
+
+                <select
+                  value={boardFilterDept}
+                  onChange={(e) => handleBoardFilterDeptChange(e.target.value)}
+                  className="px-3 py-2.5 bg-[#f9f9ff] border border-[#bec7d2] rounded-lg text-xs font-semibold text-[#121c2a] outline-none focus:border-[#006191]"
+                >
+                  {BOARD_DEPARTMENTS.map((dept) => (
+                    <option key={dept} value={dept}>
+                      {dept}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <select
-                value={boardFilterDept}
-                onChange={(e) => setBoardFilterDept(e.target.value)}
-                className="px-3 py-2.5 bg-[#f9f9ff] border border-[#bec7d2] rounded-lg text-xs font-semibold text-[#121c2a] outline-none focus:border-[#006191]"
+              <button
+                type="button"
+                onClick={handleOpenCreateBoardMember}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#006191] text-white rounded-lg text-sm font-bold hover:bg-[#007bb6] transition-colors cursor-pointer shadow-xs shrink-0"
               >
-                {BOARD_DEPARTMENTS.map((dept) => (
-                  <option key={dept} value={dept}>
-                    {dept}
-                  </option>
-                ))}
-              </select>
+                <Plus className="w-4 h-4" />
+                <span>Add Board Member</span>
+              </button>
             </div>
 
-            <button
-              type="button"
-              onClick={handleOpenCreateBoardMember}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#006191] text-white rounded-lg text-sm font-bold hover:bg-[#007bb6] transition-colors cursor-pointer shadow-xs shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Board Member</span>
-            </button>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-gray-100 text-[11px] text-[#566771]">
+              <div className="flex flex-wrap items-center gap-2">
+                {!canReorderBoard ? (
+                  <span
+                    data-testid="board-reorder-filtered-badge"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 font-semibold"
+                  >
+                    <GripVertical className="w-3 h-3 opacity-70" aria-hidden="true" />
+                    <span>Clear filters to drag-reorder</span>
+                    <button
+                      type="button"
+                      onClick={handleResetBoardFilters}
+                      className="ml-1 underline hover:text-amber-950 cursor-pointer"
+                    >
+                      Reset
+                    </button>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 text-[#566771]">
+                    <GripVertical className="w-3.5 h-3.5 text-[#006191]" aria-hidden="true" />
+                    <span>Drag cards or use the arrow buttons to reorder display priority.</span>
+                  </span>
+                )}
+              </div>
+
+              {isReorderingBoard && (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#eff3ff] border border-[#d3e5f1] text-[#006191] font-semibold"
+                >
+                  Saving order...
+                </span>
+              )}
+            </div>
           </div>
 
           {boardLoading ? (
@@ -1403,77 +1654,207 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               Loading Board of Directors from Firestore...
             </div>
           ) : filteredBoardMembers.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredBoardMembers.map((member) => (
-                <div
-                  key={member.id}
-                  className="bg-white rounded-xl border border-[#bec7d2]/60 overflow-hidden shadow-2xs flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="relative h-48 w-full bg-[#eff3ff] overflow-hidden">
-                      <img
-                        src={member.imageUrl}
-                        alt={member.name}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover object-top"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-                      <div className="absolute top-2.5 right-2.5">
-                        <span className="px-2 py-0.5 bg-black/60 text-white text-[10px] font-bold rounded">
-                          Order #{member.order || 1}
-                        </span>
-                      </div>
-                      <div className="absolute bottom-2.5 left-3 right-3 text-white">
-                        <span className="inline-block px-2 py-0.5 rounded bg-[#006191] text-[10px] font-bold uppercase tracking-wider mb-1">
-                          {member.department}
-                        </span>
-                        <h4 className="font-bold text-base leading-snug text-white">
-                          {member.name}
-                        </h4>
-                      </div>
-                    </div>
+            <div
+              ref={boardGridRef}
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 relative"
+            >
+              {filteredBoardMembers.map((member, idx) => {
+                const currentFocalPos = normalizeBoardImagePos(member.imagePosition);
+                const focalShortLabel =
+                  BOARD_IMAGE_POSITIONS.find((p) => p.value === currentFocalPos)?.shortLabel ??
+                  'Top';
+                const isDragging = draggedBoardId === member.id;
+                const isDropTarget =
+                  dragOverBoardId === member.id &&
+                  draggedBoardId !== null &&
+                  draggedBoardId !== member.id;
+                const isSavingFocal = Boolean(savingFocalIds[member.id]);
 
-                    <div className="p-4 space-y-2.5">
-                      <p className="text-xs font-bold text-[#006191] uppercase tracking-wider">
-                        {member.role}
-                      </p>
-                      <p className="text-xs text-[#3f4850] line-clamp-3 leading-relaxed">
-                        {member.bio}
-                      </p>
-                      {member.email && (
-                        <p className="text-[11px] text-[#566771] flex items-center gap-1 truncate">
-                          <Mail className="w-3 h-3 text-[#006191] shrink-0" />
-                          <span className="truncate">{member.email}</span>
+                return (
+                  <div
+                    key={member.id}
+                    data-admin-board-card
+                    data-flip-id={member.id}
+                    draggable={canReorderBoard && !isReorderingBoard}
+                    onDragStart={(e) => {
+                      if (!canReorderBoard || isReorderingRef.current) {
+                        e.preventDefault();
+                        return;
+                      }
+                      setDraggedBoardId(member.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                      e.dataTransfer.setData('text/plain', member.id);
+                    }}
+                    onDragOver={(e) => {
+                      if (!canReorderBoard || isReorderingRef.current) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (dragOverBoardId !== member.id) {
+                        setDragOverBoardId(member.id);
+                      }
+                    }}
+                    onDragLeave={(e) => {
+                      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                      if (dragOverBoardId === member.id) {
+                        setDragOverBoardId(null);
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const fromId = draggedBoardId || e.dataTransfer.getData('text/plain');
+                      setDraggedBoardId(null);
+                      setDragOverBoardId(null);
+                      if (fromId && fromId !== member.id) {
+                        void handleReorderBoardMembers(fromId, member.id);
+                      }
+                    }}
+                    onDragEnd={() => {
+                      setDraggedBoardId(null);
+                      setDragOverBoardId(null);
+                    }}
+                    className={`bg-white rounded-xl border overflow-hidden shadow-2xs flex flex-col justify-between transition-[border-color,box-shadow] ${
+                      isDropTarget
+                        ? 'ring-2 ring-[#006191] border-[#006191] shadow-md'
+                        : 'border-[#bec7d2]/60'
+                    } ${isDragging ? 'opacity-55 scale-[0.98]' : ''} ${
+                      canReorderBoard && !isReorderingBoard ? 'cursor-grab active:cursor-grabbing' : ''
+                    }`}
+                  >
+                    <div>
+                      <div className="relative aspect-[4/5] w-full bg-[#eff3ff] overflow-hidden">
+                        <img
+                          src={member.imageUrl}
+                          alt={member.name}
+                          referrerPolicy="no-referrer"
+                          className={`w-full h-full object-cover transition-[object-position] duration-300 ${getBoardImagePosClass(
+                            currentFocalPos
+                          )}`}
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+
+                        {/* Top-Left Drag Handle Badge */}
+                        {canReorderBoard && (
+                          <div
+                            className="absolute top-2.5 left-2.5 inline-flex items-center gap-1 px-2 py-1 bg-black/60 text-white text-[10px] font-bold rounded backdrop-blur-xs border border-white/15 select-none"
+                            title="Drag card to reorder"
+                          >
+                            <GripVertical className="w-3 h-3" aria-hidden="true" />
+                            <span>Drag</span>
+                          </div>
+                        )}
+
+                        {/* Top-Right Order & 1-Click Focal-Point Pill */}
+                        <div className="absolute top-2.5 right-2.5 flex flex-col items-end gap-1.5">
+                          <span className="px-2 py-0.5 bg-black/60 text-white text-[10px] font-bold rounded backdrop-blur-xs">
+                            Order #{member.order || idx + 1}
+                          </span>
+                          <button
+                            type="button"
+                            draggable={false}
+                            disabled={isSavingFocal || isReorderingBoard}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleCycleBoardImagePosition(member);
+                            }}
+                            aria-label={`Portrait crop for ${member.name}: ${focalShortLabel}. Click to cycle.`}
+                            data-testid={`board-crop-toggle-${member.id}`}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-black/65 hover:bg-[#006191] disabled:opacity-60 text-white text-[10px] font-bold rounded-full border border-white/20 backdrop-blur-xs transition-colors cursor-pointer"
+                            title="Cycle portrait focal point (Top -> Center -> Bottom)"
+                          >
+                            <Crop className="w-2.5 h-2.5 shrink-0" aria-hidden="true" />
+                            <span>Crop: {focalShortLabel}</span>
+                          </button>
+                        </div>
+
+                        <div className="absolute bottom-2.5 left-3 right-3 text-white">
+                          <span className="inline-block px-2 py-0.5 rounded bg-[#006191] text-[10px] font-bold uppercase tracking-wider mb-1">
+                            {member.department}
+                          </span>
+                          <h4 className="font-bold text-base leading-snug text-white">
+                            {member.name}
+                          </h4>
+                        </div>
+                      </div>
+
+                      <div className="p-4 space-y-2.5">
+                        <p className="text-xs font-bold text-[#006191] uppercase tracking-wider">
+                          {member.role}
                         </p>
-                      )}
+                        <p className="text-xs text-[#3f4850] line-clamp-3 leading-relaxed">
+                          {member.bio}
+                        </p>
+                        {member.email && (
+                          <p className="text-[11px] text-[#566771] flex items-center gap-1 truncate">
+                            <Mail className="w-3 h-3 text-[#006191] shrink-0" />
+                            <span className="truncate">{member.email}</span>
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="p-4 pt-3 border-t border-gray-100 flex items-center justify-between bg-gray-50/50">
-                    <span className="text-[11px] text-[#566771] font-mono">
-                      ID: {member.id}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenEditBoardMember(member)}
-                        className="p-1.5 text-[#006191] hover:bg-[#eff3ff] rounded-md transition-colors cursor-pointer"
-                        title="Edit Board Member"
-                      >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteBoardMember(member.id, member.name)}
-                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
-                        title="Remove from Board"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                    <div className="p-4 pt-3 border-t border-gray-100 flex items-center justify-between gap-2 bg-gray-50/50">
+                      <span className="text-[11px] text-[#566771] font-mono truncate">
+                        ID: {member.id}
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {canReorderBoard && filteredBoardMembers.length > 1 && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={idx === 0 || isReorderingBoard}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={() => {
+                                const target = filteredBoardMembers[idx - 1];
+                                if (target) void handleReorderBoardMembers(member.id, target.id);
+                              }}
+                              aria-label={`Move ${member.name} earlier`}
+                              title="Move earlier"
+                              className="p-1.5 text-[#566771] hover:text-[#006191] hover:bg-[#eff3ff] disabled:opacity-35 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer"
+                            >
+                              <ArrowUp className="w-4 h-4" aria-hidden="true" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={
+                                idx === filteredBoardMembers.length - 1 || isReorderingBoard
+                              }
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={() => {
+                                const target = filteredBoardMembers[idx + 1];
+                                if (target) void handleReorderBoardMembers(member.id, target.id);
+                              }}
+                              aria-label={`Move ${member.name} later`}
+                              title="Move later"
+                              className="p-1.5 text-[#566771] hover:text-[#006191] hover:bg-[#eff3ff] disabled:opacity-35 disabled:cursor-not-allowed rounded-md transition-colors cursor-pointer"
+                            >
+                              <ArrowDown className="w-4 h-4" aria-hidden="true" />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={() => handleOpenEditBoardMember(member)}
+                          className="p-1.5 text-[#006191] hover:bg-[#eff3ff] rounded-md transition-colors cursor-pointer"
+                          title="Edit Board Member"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={() => void handleDeleteBoardMember(member.id, member.name)}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                          title="Remove from Board"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-[#bec7d2] p-8">
@@ -2603,6 +2984,80 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     placeholder="https://images.unsplash.com/..."
                     className="w-full px-3 py-2 border border-[#bec7d2] rounded-lg text-xs"
                   />
+                </div>
+
+                {/* Portrait Focal-Point Picker + Live 4:5 Framing Preview */}
+                <div className="mt-3 p-3.5 rounded-xl bg-[#f9f9ff] border border-[#bec7d2]/60 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  <div className="flex-1 space-y-2 w-full">
+                    <div className="flex items-center gap-1.5">
+                      <Crop className="w-3.5 h-3.5 text-[#006191]" aria-hidden="true" />
+                      <span className="text-xs font-bold text-[#121c2a] uppercase">
+                        Portrait Focal Point
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#566771] leading-relaxed">
+                      Choose how the portrait aligns inside the 4:5 board card frame on both Admin
+                      and the public About page.
+                    </p>
+                    <div
+                      role="group"
+                      aria-label="Portrait Focal Point"
+                      className="inline-flex flex-wrap gap-1.5 p-1 bg-white rounded-lg border border-[#bec7d2]/70"
+                    >
+                      {BOARD_IMAGE_POSITIONS.map((opt) => {
+                        const isSelected =
+                          normalizeBoardImagePos(boardMemberForm.imagePosition) === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() =>
+                              setBoardMemberForm({
+                                ...boardMemberForm,
+                                imagePosition: opt.value
+                              })
+                            }
+                            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors cursor-pointer ${
+                              isSelected
+                                ? 'bg-[#006191] text-white shadow-2xs'
+                                : 'text-[#3f4850] hover:bg-[#eff3ff] hover:text-[#006191]'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Live 4:5 Mini Crop Preview */}
+                  <div className="shrink-0 flex flex-col items-center gap-1">
+                    <div
+                      data-testid="board-focal-preview"
+                      className="relative w-24 aspect-[4/5] rounded-xl overflow-hidden bg-[#eff3ff] border border-[#bec7d2]/80 shadow-xs"
+                    >
+                      {boardMemberForm.imageUrl ? (
+                        <img
+                          src={boardMemberForm.imageUrl}
+                          alt="Portrait crop preview"
+                          referrerPolicy="no-referrer"
+                          className={`w-full h-full object-cover transition-[object-position] duration-300 ${getBoardImagePosClass(
+                            boardMemberForm.imagePosition
+                          )}`}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[#6f7881]">
+                          <Users className="w-6 h-6 opacity-50" aria-hidden="true" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent pointer-events-none" />
+                      <span className="absolute bottom-1.5 left-1.5 right-1.5 text-[9px] font-bold text-white truncate pointer-events-none">
+                        {boardMemberForm.name?.trim() || 'Live Preview'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-[#566771]">4:5 Preview</span>
+                  </div>
                 </div>
               </div>
 

@@ -1,4 +1,4 @@
-export type NavScreen = 'programs' | 'donate' | 'login' | 'home' | 'about' | 'contact' | 'member' | 'gallery' | 'assembly' | 'brand';
+export type NavScreen = 'programs' | 'donate' | 'login' | 'home' | 'about' | 'contact' | 'member' | 'gallery' | 'assembly';
 
 export type AdminTabId =
   | 'programs'
@@ -100,12 +100,15 @@ export interface SiteNotice {
   linkScreen?: NavScreen;
 }
 
+export type BoardImagePosition = 'top' | 'center' | 'bottom';
+
 export interface BoardMember {
   id: string;
   name: string;
   role: string;
   department: string;
   imageUrl: string;
+  imagePosition?: BoardImagePosition;
   bio: string;
   email?: string;
   phone?: string;

@@ -6,11 +6,13 @@ import {
   orderBy,
   query,
   setDoc,
-  Unsubscribe
+  Unsubscribe,
+  writeBatch
 } from 'firebase/firestore';
 import { getFirebaseServices } from './firebase';
 import { isSafeHttpUrl } from './urlValidation';
 import {
+  BoardImagePosition,
   BoardMember,
   Campaign,
   CommunityEvent,
@@ -57,8 +59,13 @@ const VALID_NOTICE_LINK_SCREENS: ReadonlyArray<string> = [
   'contact',
   'login',
   'member',
-  'assembly',
-  'brand'
+  'assembly'
+];
+
+export const VALID_BOARD_IMAGE_POSITIONS: ReadonlyArray<BoardImagePosition> = [
+  'top',
+  'center',
+  'bottom'
 ];
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -367,6 +374,17 @@ export function buildBoardMemberPayload(member: BoardMember): BoardMember {
     bio: (member.bio || '').trim().slice(0, 2000)
   };
 
+  if (
+    member.imagePosition !== undefined &&
+    member.imagePosition !== null &&
+    String(member.imagePosition).trim() !== ''
+  ) {
+    const normalized = String(member.imagePosition).trim();
+    if (!VALID_BOARD_IMAGE_POSITIONS.includes(normalized as BoardImagePosition)) {
+      throw new Error('Board member imagePosition must be top, center, or bottom.');
+    }
+    payload.imagePosition = normalized as BoardImagePosition;
+  }
   if (typeof member.email === 'string' && member.email.trim()) {
     const email = member.email.trim();
     if (!isValidEmailFormat(email)) {
@@ -387,6 +405,30 @@ export function buildBoardMemberPayload(member: BoardMember): BoardMember {
   }
 
   return stripUndefined(payload);
+}
+
+export function computeReorderedBoardMembers(
+  members: BoardMember[],
+  fromId: string,
+  toId: string
+): BoardMember[] {
+  if (!fromId || !toId || fromId === toId) {
+    return members;
+  }
+  const fromIndex = members.findIndex((m) => m.id === fromId);
+  const toIndex = members.findIndex((m) => m.id === toId);
+  if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) {
+    return members;
+  }
+
+  const next = [...members];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+
+  return next.map((member, idx) => ({
+    ...member,
+    order: idx + 1
+  }));
 }
 
 export function buildSiteNoticePayload(notice: SiteNotice): SiteNotice {
@@ -650,6 +692,28 @@ export async function deleteBoardMember(memberId: string): Promise<void> {
   const services = getFirebaseServices();
   if (!services) throw new Error('Firebase is not configured.');
   await deleteDoc(doc(services.db, 'boardMembers', memberId));
+}
+
+export async function reorderBoardMembers(
+  orderedMembers: BoardMember[]
+): Promise<BoardMember[]> {
+  const services = getFirebaseServices();
+  if (!services) throw new Error('Firebase is not configured.');
+  if (orderedMembers.length === 0) return [];
+
+  const payloads = orderedMembers.map((member, idx) =>
+    buildBoardMemberPayload({
+      ...member,
+      order: idx + 1
+    })
+  );
+
+  const batch = writeBatch(services.db);
+  for (const payload of payloads) {
+    batch.set(doc(services.db, 'boardMembers', payload.id), payload);
+  }
+  await batch.commit();
+  return payloads;
 }
 
 export async function saveSiteNotice(notice: SiteNotice): Promise<SiteNotice> {

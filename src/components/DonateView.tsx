@@ -1,4 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { gsap } from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { useGSAP } from '@gsap/react';
 import { DONATION_HERO_IMAGE } from '../constants';
 import { Campaign, ContributionDestination } from '../types';
 import {
@@ -10,9 +13,15 @@ import {
 import { submitDonationPledge } from '../lib/firestoreDonations';
 import { Check, X, Heart, ChevronDown, Landmark, ShieldCheck, Copy, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../i18n';
+import { RollingTextButton } from './RollingTextButton';
+
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  gsap.registerPlugin(ScrollTrigger, useGSAP);
+}
 
 export const DonateView: React.FC = () => {
   const { t } = useLanguage();
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [campaignsLoading, setCampaignsLoading] = useState(true);
@@ -183,12 +192,105 @@ export const DonateView: React.FC = () => {
     setSubmitError(null);
   };
 
+  useGSAP(
+    () => {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+      const mm = gsap.matchMedia();
+      mm.add(
+        {
+          motionOk: '(prefers-reduced-motion: no-preference)',
+          reduceMotion: '(prefers-reduced-motion: reduce)'
+        },
+        (context) => {
+          const { motionOk, reduceMotion } = context.conditions ?? {};
+          if (!motionOk || reduceMotion) return;
+
+          const heroItems = gsap.utils.toArray<HTMLElement>('[data-gsap="donate-hero"]');
+          if (heroItems.length > 0) {
+            gsap.from(heroItems, {
+              y: 18,
+              opacity: 0,
+              duration: 0.65,
+              stagger: 0.09,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity'
+            });
+          }
+
+          const portalCards = gsap.utils.toArray<HTMLElement>('[data-gsap="donate-portal-card"]');
+          if (portalCards.length > 0) {
+            gsap.from(portalCards, {
+              y: 22,
+              opacity: 0,
+              duration: 0.65,
+              stagger: 0.1,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity',
+              scrollTrigger: {
+                trigger: '#donation-form-section',
+                start: 'top 90%',
+                once: true
+              }
+            });
+          }
+        }
+      );
+      return () => mm.revert();
+    },
+    { scope: rootRef }
+  );
+
+  const hasCampaigns = !campaignsLoading && campaigns.length > 0;
+
+  useGSAP(
+    () => {
+      if (
+        !hasCampaigns ||
+        typeof window === 'undefined' ||
+        typeof window.matchMedia !== 'function'
+      ) {
+        return;
+      }
+      const mm = gsap.matchMedia();
+      mm.add(
+        {
+          motionOk: '(prefers-reduced-motion: no-preference)',
+          reduceMotion: '(prefers-reduced-motion: reduce)'
+        },
+        (context) => {
+          const { motionOk, reduceMotion } = context.conditions ?? {};
+          if (!motionOk || reduceMotion) return;
+
+          const cards = gsap.utils.toArray<HTMLElement>('[data-gsap="donate-campaign-card"]');
+          if (cards.length > 0) {
+            gsap.from(cards, {
+              y: 22,
+              opacity: 0,
+              duration: 0.6,
+              stagger: 0.08,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity',
+              scrollTrigger: {
+                trigger: cards[0],
+                start: 'top 92%',
+                once: true
+              }
+            });
+            ScrollTrigger.refresh();
+          }
+        }
+      );
+      return () => mm.revert();
+    },
+    { scope: rootRef, dependencies: [hasCampaigns] }
+  );
+
   return (
-    <div className="w-full">
+    <div ref={rootRef} className="w-full">
       {/* Hero Impact Section */}
       <section className="relative py-14 lg:py-20 bg-white border-b border-[#DCE2DF]">
         <div className="max-w-[1200px] mx-auto px-6 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-          <div className="lg:col-span-7">
+          <div className="lg:col-span-7" data-gsap="donate-hero">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded bg-[#E7F3EE] text-[#0D6E52] text-xs font-semibold mb-4 border border-[#0D6E52]/20">
               <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
               <span>{t.donate.transparencyGuarantee}</span>
@@ -196,28 +298,15 @@ export const DonateView: React.FC = () => {
             <h1 className="display-hero font-semibold text-[#0F1D26] mb-4">
               {t.donate.title}
             </h1>
-            <p className="text-base md:text-lg text-[#4A5862] mb-8 max-w-[60ch] leading-relaxed">
+            <p className="text-base md:text-lg text-[#4A5862] max-w-[60ch] leading-relaxed">
               {t.donate.subtitle}
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
-              <div className="flex items-center gap-3 p-3.5 bg-[#F6F7F4] border border-[#DCE2DF] rounded-lg">
-                <Landmark className="w-5 h-5 text-[#005A87] shrink-0" aria-hidden="true" />
-                <div>
-                  <span className="text-xs font-bold text-[#0F1D26] block">PostFinance Vereinskonto</span>
-                  <span className="font-mono text-[11px] text-[#4A5862]">CH89 0900 0000 6049 6610 7</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 p-3.5 bg-[#F6F7F4] border border-[#DCE2DF] rounded-lg">
-                <ShieldCheck className="w-5 h-5 text-[#0D6E52] shrink-0" aria-hidden="true" />
-                <div>
-                  <span className="text-xs font-bold text-[#0F1D26] block">100% Zweckgebunden</span>
-                  <span className="text-[11px] text-[#4A5862]">Geprüft gemäss Art. 10 Statuten</span>
-                </div>
-              </div>
-            </div>
           </div>
 
-          <figure className="lg:col-span-5 relative aspect-[4/3] rounded-xl overflow-hidden border border-[#DCE2DF] bg-[#EEF2F0]">
+          <figure
+            data-gsap="donate-hero"
+            className="lg:col-span-5 relative aspect-[4/3] rounded-xl overflow-hidden border border-[#DCE2DF] bg-[#EEF2F0]"
+          >
             <img
               src={DONATION_HERO_IMAGE}
               alt="Gemeinschaftliche Unterstützung und Bildungsarbeit"
@@ -239,13 +328,13 @@ export const DonateView: React.FC = () => {
             </p>
           </div>
           {otherCampaigns.length > 0 && (
-            <button
+            <RollingTextButton
               type="button"
+              magnetic={false}
               onClick={() => setProjectsModalOpen(true)}
-              className="min-h-10 px-4 py-2 bg-white hover:bg-[#EEF2F0] border border-[#DCE2DF] text-[#0F1D26] rounded-lg text-xs font-semibold transition-colors cursor-pointer self-start md:self-auto"
-            >
-              Weitere {otherCampaigns.length} Hilfsprojekte ansehen
-            </button>
+              label={`Weitere ${otherCampaigns.length} Hilfsprojekte ansehen`}
+              className="min-h-10 px-4 py-2 bg-white hover:bg-[#EEF2F0] border border-[#DCE2DF] text-[#0F1D26] rounded-lg text-xs font-semibold transition-colors cursor-pointer self-start md:self-auto inline-flex items-center justify-center"
+            />
           )}
         </div>
 
@@ -272,7 +361,10 @@ export const DonateView: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
             {/* Primary Campaign Card (Span 7) */}
             {campaigns[0] && (
-              <article className="md:col-span-7 bg-white rounded-xl p-7 sm:p-8 border border-[#DCE2DF] program-card-shadow flex flex-col justify-between">
+              <article
+                data-gsap="donate-campaign-card"
+                className="md:col-span-7 bg-white rounded-xl p-7 sm:p-8 border border-[#DCE2DF] program-card-shadow flex flex-col justify-between"
+              >
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                     <span className="bg-[#E6F0F5] text-[#005A87] border border-[#005A87]/20 px-2.5 py-1 rounded text-xs font-semibold">
@@ -315,13 +407,12 @@ export const DonateView: React.FC = () => {
                       }}
                     />
                   </div>
-                  <button
+                  <RollingTextButton
                     type="button"
                     onClick={() => handleCampaignDonate(campaigns[0])}
-                    className="w-full sm:w-auto min-h-11 px-6 py-3 bg-[#005A87] hover:bg-[#004569] text-white rounded-lg font-semibold text-sm transition-colors cursor-pointer"
-                  >
-                    Für dieses Projekt spenden
-                  </button>
+                    label="Für dieses Projekt spenden"
+                    className="w-full sm:w-auto min-h-11 px-6 py-3 bg-[#005A87] hover:bg-[#004569] text-white rounded-lg font-semibold text-sm transition-colors cursor-pointer inline-flex items-center justify-center"
+                  />
                 </div>
               </article>
             )}
@@ -333,6 +424,7 @@ export const DonateView: React.FC = () => {
                 return (
                   <article
                     key={camp.id}
+                    data-gsap="donate-campaign-card"
                     className="bg-white rounded-xl p-6 border border-[#DCE2DF] program-card-shadow flex flex-col justify-between flex-1"
                   >
                     <div>
@@ -359,13 +451,13 @@ export const DonateView: React.FC = () => {
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <button
+                      <RollingTextButton
                         type="button"
+                        magnetic={false}
                         onClick={() => handleCampaignDonate(camp)}
-                        className="w-full min-h-10 py-2 bg-[#F6F7F4] hover:bg-[#005A87] text-[#0F1D26] hover:text-white border border-[#DCE2DF] hover:border-[#005A87] rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                      >
-                        Zweck auswählen ({pct}% erreicht)
-                      </button>
+                        label={`Zweck auswählen (${pct}% erreicht)`}
+                        className="w-full min-h-10 py-2 px-4 bg-[#F6F7F4] hover:bg-[#005A87] text-[#0F1D26] hover:text-white border border-[#DCE2DF] hover:border-[#005A87] rounded-lg text-xs font-semibold transition-colors cursor-pointer inline-flex items-center justify-center"
+                      />
                     </div>
                   </article>
                 );
@@ -379,7 +471,10 @@ export const DonateView: React.FC = () => {
       <section id="donation-form-section" className="py-16 bg-white border-t border-[#DCE2DF]">
         <div className="max-w-[1200px] mx-auto px-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Donation Form Column */}
-          <div className="lg:col-span-7 bg-[#F6F7F4] p-6 sm:p-8 rounded-xl border border-[#DCE2DF]">
+          <div
+            data-gsap="donate-portal-card"
+            className="lg:col-span-7 bg-[#F6F7F4] p-6 sm:p-8 rounded-xl border border-[#DCE2DF]"
+          >
             <div className="flex flex-wrap justify-between items-start gap-2 mb-2">
               <h2 className="display-section font-semibold text-[#0F1D26]">
                 {t.donate.proceedDonation}
@@ -539,25 +634,25 @@ export const DonateView: React.FC = () => {
               </div>
 
               {/* Submit Button */}
-              <button
+              <RollingTextButton
                 type="submit"
+                magnetic={false}
                 disabled={isSubmitting || !isAmountValid || !selectedProject}
-                className="w-full min-h-13 py-3.5 bg-[#005A87] hover:bg-[#004569] text-white rounded-lg font-semibold text-base transition-colors cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2 tabular-nums"
-              >
-                {isSubmitting ? (
-                  <span>{t.programs.submitting}...</span>
-                ) : (
-                  <>
-                    <Heart className="w-4 h-4" aria-hidden="true" />
-                    <span>{t.donate.proceedDonation} • CHF {currentDonationAmount.toFixed(2)}</span>
-                  </>
-                )}
-              </button>
+                leftIcon={
+                  !isSubmitting ? <Heart className="w-4 h-4 shrink-0" aria-hidden="true" /> : undefined
+                }
+                label={
+                  isSubmitting
+                    ? `${t.programs.submitting}...`
+                    : `${t.donate.proceedDonation} • CHF ${currentDonationAmount.toFixed(2)}`
+                }
+                className="w-full min-h-13 py-3.5 px-6 bg-[#005A87] hover:bg-[#004569] text-white rounded-lg font-semibold text-base transition-colors cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2 tabular-nums"
+              />
             </form>
           </div>
 
           {/* Contribution Destination & Official Swiss Bank Details Column */}
-          <div className="lg:col-span-5 space-y-6">
+          <div data-gsap="donate-portal-card" className="lg:col-span-5 space-y-6">
             {/* Direct Bank Transfer / PostFinance Details */}
             <div className="bg-[#0F1D26] text-white p-7 rounded-xl border border-[#0F1D26] space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-white/15">
@@ -693,18 +788,18 @@ export const DonateView: React.FC = () => {
                           style={{ width: `${pct}%` }}
                         />
                       </div>
-                      <button
+                      <RollingTextButton
                         type="button"
+                        magnetic={false}
                         onClick={() => {
                           setSelectedProject(proj.title);
                           setProjectsModalOpen(false);
                           const element = document.getElementById('donation-form-section');
                           if (element) element.scrollIntoView({ behavior: 'smooth' });
                         }}
-                        className="w-full min-h-9 py-2 bg-white border border-[#DCE2DF] hover:border-[#005A87] text-[#0F1D26] hover:bg-[#005A87] hover:text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-                      >
-                        Projekt auswählen
-                      </button>
+                        label="Projekt auswählen"
+                        className="w-full min-h-9 py-2 px-3 bg-white border border-[#DCE2DF] hover:border-[#005A87] text-[#0F1D26] hover:bg-[#005A87] hover:text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer inline-flex items-center justify-center"
+                      />
                     </div>
                   </div>
                 );

@@ -1,13 +1,22 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { gsap } from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { useGSAP } from '@gsap/react';
 import { Program } from '../types';
 import { subscribePrograms } from '../lib/firestoreContent';
 import { useLanguage } from '../i18n';
 import { Calendar, MapPin, Users, CheckCircle2, Send, X, Search, AlertCircle } from 'lucide-react';
+import { RollingTextButton } from './RollingTextButton';
+
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  gsap.registerPlugin(ScrollTrigger, useGSAP);
+}
 
 export const ProgramsView: React.FC = () => {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,12 +133,99 @@ export const ProgramsView: React.FC = () => {
     }, 2200);
   };
 
+  useGSAP(
+    () => {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+      const mm = gsap.matchMedia();
+      mm.add(
+        {
+          motionOk: '(prefers-reduced-motion: no-preference)',
+          reduceMotion: '(prefers-reduced-motion: reduce)'
+        },
+        (context) => {
+          const { motionOk, reduceMotion } = context.conditions ?? {};
+          if (!motionOk || reduceMotion) return;
+
+          const heroItems = gsap.utils.toArray<HTMLElement>('[data-gsap="programs-hero"]');
+          if (heroItems.length > 0) {
+            gsap.from(heroItems, {
+              y: 16,
+              opacity: 0,
+              duration: 0.65,
+              stagger: 0.08,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity'
+            });
+          }
+
+          const ctaBanner = gsap.utils.toArray<HTMLElement>('[data-gsap="programs-cta"]');
+          if (ctaBanner.length > 0) {
+            gsap.from(ctaBanner, {
+              y: 20,
+              opacity: 0,
+              duration: 0.65,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity',
+              scrollTrigger: {
+                trigger: ctaBanner[0],
+                start: 'top 92%',
+                once: true
+              }
+            });
+          }
+        }
+      );
+      return () => mm.revert();
+    },
+    { scope: rootRef }
+  );
+
+  const hasPrograms = !loading && programs.length > 0;
+
+  useGSAP(
+    () => {
+      if (
+        !hasPrograms ||
+        typeof window === 'undefined' ||
+        typeof window.matchMedia !== 'function'
+      ) {
+        return;
+      }
+      const mm = gsap.matchMedia();
+      mm.add(
+        {
+          motionOk: '(prefers-reduced-motion: no-preference)',
+          reduceMotion: '(prefers-reduced-motion: reduce)'
+        },
+        (context) => {
+          const { motionOk, reduceMotion } = context.conditions ?? {};
+          if (!motionOk || reduceMotion) return;
+
+          const cards = gsap.utils.toArray<HTMLElement>('[data-gsap="program-card"]');
+          if (cards.length > 0) {
+            gsap.from(cards, {
+              y: 22,
+              opacity: 0,
+              duration: 0.6,
+              stagger: 0.07,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity'
+            });
+            ScrollTrigger.refresh();
+          }
+        }
+      );
+      return () => mm.revert();
+    },
+    { scope: rootRef, dependencies: [hasPrograms] }
+  );
+
   return (
-    <div className="w-full">
+    <div ref={rootRef} className="w-full">
       {/* Header Banner */}
       <section className="py-14 bg-white border-b border-[#DCE2DF]">
         <div className="max-w-[1200px] mx-auto px-6">
-          <div className="max-w-2xl">
+          <div className="max-w-2xl" data-gsap="programs-hero">
             <h1 className="display-hero font-semibold text-[#0F1D26] mb-3">
               {t.programs.title}
             </h1>
@@ -228,16 +324,16 @@ export const ProgramsView: React.FC = () => {
                 {t.programs.noProgramsFound}
               </h2>
               {(selectedCategory !== 'all' || searchQuery.trim() !== '') && (
-                <button
+                <RollingTextButton
                   type="button"
+                  magnetic={false}
                   onClick={() => {
                     setSelectedCategory('all');
                     setSearchQuery('');
                   }}
-                  className="mt-3 min-h-10 px-5 py-2 bg-[#005A87] text-white text-sm rounded-lg font-semibold cursor-pointer"
-                >
-                  Filter zurücksetzen
-                </button>
+                  label="Filter zurücksetzen"
+                  className="mt-3 min-h-10 px-5 py-2 bg-[#005A87] hover:bg-[#004569] text-white text-sm rounded-lg font-semibold transition-colors cursor-pointer inline-flex items-center justify-center"
+                />
               )}
             </div>
           ) : (
@@ -245,6 +341,7 @@ export const ProgramsView: React.FC = () => {
               {filteredPrograms.map((program) => (
                 <article
                   key={program.id}
+                  data-gsap="program-card"
                   className="bg-white rounded-xl overflow-hidden program-card-shadow flex flex-col h-full border border-[#DCE2DF] group"
                 >
                   <div className="aspect-video w-full overflow-hidden bg-[#EEF2F0] relative">
@@ -285,13 +382,13 @@ export const ProgramsView: React.FC = () => {
                       </div>
                     </div>
 
-                    <button
+                    <RollingTextButton
                       type="button"
+                      magnetic={false}
                       onClick={() => openProgramModal(program)}
-                      className="w-full min-h-11 bg-[#F6F7F4] hover:bg-[#005A87] text-[#0F1D26] hover:text-white border border-[#DCE2DF] hover:border-[#005A87] font-semibold text-sm py-2.5 px-4 rounded-lg transition-colors cursor-pointer"
-                    >
-                      {t.programs.viewDetails}
-                    </button>
+                      label={t.programs.viewDetails}
+                      className="w-full min-h-11 bg-[#F6F7F4] hover:bg-[#005A87] text-[#0F1D26] hover:text-white border border-[#DCE2DF] hover:border-[#005A87] font-semibold text-sm py-2.5 px-4 rounded-lg transition-colors cursor-pointer inline-flex items-center justify-center"
+                    />
                   </div>
                 </article>
               ))}
@@ -302,7 +399,10 @@ export const ProgramsView: React.FC = () => {
 
       {/* Suggestion Call to Action Banner */}
       <section className="py-16 bg-[#0F1D26] text-white border-t border-[#DCE2DF]">
-        <div className="max-w-[1200px] mx-auto px-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
+        <div
+          data-gsap="programs-cta"
+          className="max-w-[1200px] mx-auto px-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-8"
+        >
           <div className="max-w-2xl">
             <h2 className="display-section font-semibold mb-2 text-white">
               {t.programs.askDirector}
@@ -311,7 +411,7 @@ export const ProgramsView: React.FC = () => {
               {t.programs.askDirectorSubtitle}
             </p>
           </div>
-          <button
+          <RollingTextButton
             type="button"
             onClick={() => {
               if (dirTimerRef.current) {
@@ -321,10 +421,9 @@ export const ProgramsView: React.FC = () => {
               setDirectorSubmitted(false);
               setDirectorModalOpen(true);
             }}
-            className="min-h-12 bg-white hover:bg-[#EEF2F0] text-[#0F1D26] px-7 py-3.5 rounded-lg font-semibold text-sm transition-colors cursor-pointer shrink-0"
-          >
-            {t.programs.askDirector}
-          </button>
+            label={t.programs.askDirector}
+            className="min-h-12 bg-white hover:bg-[#EEF2F0] text-[#0F1D26] px-7 py-3.5 rounded-lg font-semibold text-sm transition-colors cursor-pointer shrink-0 inline-flex items-center justify-center"
+          />
         </div>
       </section>
 
@@ -427,13 +526,13 @@ export const ProgramsView: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex gap-2 pt-1">
-                  <button
+                  <RollingTextButton
                     type="submit"
-                    className="flex-1 min-h-11 py-2.5 bg-[#005A87] text-white rounded-lg text-sm font-semibold hover:bg-[#004569] transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Send className="w-4 h-4" aria-hidden="true" />
-                    <span>{t.programs.registerNow}</span>
-                  </button>
+                    magnetic={false}
+                    leftIcon={<Send className="w-4 h-4 shrink-0" aria-hidden="true" />}
+                    label={t.programs.registerNow}
+                    className="flex-1 min-h-11 py-2.5 px-4 bg-[#005A87] text-white rounded-lg text-sm font-semibold hover:bg-[#004569] transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                  />
                   <button
                     type="button"
                     onClick={() => {
@@ -532,12 +631,12 @@ export const ProgramsView: React.FC = () => {
                     className="w-full px-3 py-2.5 border border-[#DCE2DF] rounded-lg text-sm focus:border-[#005A87] outline-none resize-none"
                   />
                 </div>
-                <button
+                <RollingTextButton
                   type="submit"
-                  className="w-full min-h-11 py-3 bg-[#005A87] text-white rounded-lg font-semibold text-sm hover:bg-[#004569] transition-colors cursor-pointer"
-                >
-                  {t.programs.submitQuestion}
-                </button>
+                  magnetic={false}
+                  label={t.programs.submitQuestion}
+                  className="w-full min-h-11 py-3 px-4 bg-[#005A87] text-white rounded-lg font-semibold text-sm hover:bg-[#004569] transition-colors cursor-pointer inline-flex items-center justify-center"
+                />
               </form>
             )}
           </div>

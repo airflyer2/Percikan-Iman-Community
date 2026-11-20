@@ -1,9 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Outlet, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
-import { ArrowRight, Megaphone } from 'lucide-react';
+import { Outlet, useLocation, useOutletContext } from 'react-router-dom';
 import { useLanguage } from '../i18n';
-import { subscribeSiteNotice } from '../lib/firestoreContent';
-import { NavScreen, SiteNotice } from '../types';
+import { NavScreen } from '../types';
 import { Footer } from './Footer';
 import { InfoModalProps, InfoModals } from './InfoModals';
 import { Navbar } from './Navbar';
@@ -36,7 +34,6 @@ export function normalizeScreenToPath(screen: NavScreen | string): string {
     case 'gallery':
     case 'about':
     case 'contact':
-    case 'brand':
     case 'member':
     case 'assembly':
       return `/${clean}`;
@@ -48,18 +45,9 @@ export function normalizeScreenToPath(screen: NavScreen | string): string {
 export const PublicLayout: React.FC = () => {
   const { t } = useLanguage();
   const location = useLocation();
-  const navigate = useNavigate();
 
-  const [siteNotice, setSiteNotice] = useState<SiteNotice | null>(null);
   const [infoModal, setInfoModal] = useState<InfoModalProps['type']>(null);
   const [isStatutenOpen, setIsStatutenOpen] = useState(false);
-
-  useEffect(() => {
-    const unsub = subscribeSiteNotice((res) => {
-      setSiteNotice(res.data);
-    });
-    return () => unsub();
-  }, []);
 
   useEffect(() => {
     const titles: Record<string, string> = {
@@ -69,10 +57,9 @@ export const PublicLayout: React.FC = () => {
       '/about': `${t.nav.about} | Verein Percikan Iman Schweiz`,
       '/contact': `${t.nav.contact} | Verein Percikan Iman Schweiz`,
       '/gallery': 'Fotokatalog | Verein Percikan Iman Schweiz',
-      '/brand': `${t.nav.brandKit} | Verein Percikan Iman Schweiz`,
       '/login': `${t.nav.login} | Verein Percikan Iman Schweiz`,
       '/member': `${t.nav.myMembership} | Verein Percikan Iman Schweiz`,
-      '/assembly': 'Vereinsversammlung (GA) | Verein Percikan Iman Schweiz'
+      '/assembly': 'Vereinsversammlung (GA) | Verein Percikan Iman Schweiz',
     };
     document.title =
       titles[location.pathname] || 'Verein Percikan Iman Schweiz — Gemeinschaft & Transparenz';
@@ -103,40 +90,13 @@ export const PublicLayout: React.FC = () => {
 
       <Navbar />
 
-      <div className="pt-20 lg:pt-22">
-        {siteNotice?.enabled && (
-          <div
-            data-testid="site-notice"
-            className="bg-[#132435] text-[#FAF9F6] py-2.5 px-6 border-b border-[#132435]"
-          >
-            <div className="max-w-[1200px] mx-auto flex flex-wrap items-center justify-between gap-3 text-xs md:text-sm">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span className="px-2.5 py-0.5 rounded-md bg-[#8C5327] text-white text-[11px] font-semibold tracking-wide flex items-center gap-1.5 shrink-0">
-                  <Megaphone className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>{siteNotice.badge}</span>
-                </span>
-                <span className="text-[#FAF9F6]/90 font-normal">{siteNotice.message}</span>
-              </div>
-              {siteNotice.linkText && siteNotice.linkScreen && (
-                <button
-                  type="button"
-                  onClick={() => navigate(normalizeScreenToPath(siteNotice.linkScreen!))}
-                  className="shrink-0 text-[#9CC4E4] hover:text-white font-semibold underline underline-offset-4 transition-colors inline-flex items-center gap-1.5 cursor-pointer min-h-6"
-                >
-                  <span>{siteNotice.linkText}</span>
-                  <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      <div className="bg-white pt-22 lg:pt-24" aria-hidden="true" />
 
       <main id="main-content" tabIndex={-1} className="flex-grow focus:outline-none">
         <Outlet
           context={{
             onOpenStatuten: handleOpenStatuten,
-            onOpenModal: handleOpenModal
+            onOpenModal: handleOpenModal,
           }}
         />
       </main>

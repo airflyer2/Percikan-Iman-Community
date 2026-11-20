@@ -82,7 +82,7 @@ rules_version = '2';
 //
 // Collection: boardMembers
 // Document ID: {memberId}
-// Fields: id (immutable), name, role, department, imageUrl, bio, email?, phone?, order?
+// Fields: id (immutable), name, role, department, imageUrl, bio, email?, phone?, order?, imagePosition?
 //
 // Collection: siteConfig
 // Document IDs:
@@ -600,7 +600,7 @@ service cloud.firestore {
     function isValidBoardMember(data) {
       return hasOnlyAllowedFields([
           'id', 'name', 'role', 'department', 'imageUrl',
-          'bio', 'email', 'phone', 'order'
+          'bio', 'email', 'phone', 'order', 'imagePosition'
         ]) &&
         hasRequiredFields([
           'id', 'name', 'role', 'department', 'imageUrl', 'bio'
@@ -613,7 +613,8 @@ service cloud.firestore {
         validStringLength('bio', 0, 2000) &&
         (!('email' in data) || data.email == '' || isValidEmail(data.email)) &&
         isValidOptionalString('phone', 0, 50) &&
-        isValidOptionalNumber('order', 0, 10000);
+        isValidOptionalNumber('order', 0, 10000) &&
+        (!('imagePosition' in data) || (data.imagePosition is string && data.imagePosition in ['top', 'center', 'bottom']));
     }
 
     function isValidSiteNotice(data) {

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { UploadCloud, Image as ImageIcon, X, RefreshCw, CheckCircle2, AlertCircle, Link } from 'lucide-react';
 
-interface PhotoUploadProps {
+export interface PhotoUploadProps {
   id?: string;
   value?: string;
   onChange: (imageUrl: string) => void;
@@ -13,6 +13,17 @@ interface PhotoUploadProps {
   allowUrlInput?: boolean;
 }
 
+export const MAX_FIRESTORE_DATA_URL_BYTES = 490_000;
+const FIRESTORE_HARD_DATA_URL_LIMIT = 500_000;
+const MIN_CANVAS_MAX_DIM = 240;
+const CANVAS_SHRINK_FACTOR = 0.78;
+const JPEG_INITIAL_QUALITIES = [0.84, 0.74, 0.64, 0.52, 0.42] as const;
+const JPEG_SHRINK_QUALITIES = [0.78, 0.65, 0.52, 0.42] as const;
+
+const DATA_URL_PREFIX_REGEX = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i;
+const STRICT_FIRESTORE_DATA_URL_REGEX =
+  /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+
 const ALLOWED_RASTER_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -21,59 +32,197 @@ const ALLOWED_RASTER_MIME_TYPES = new Set([
   'image/gif'
 ]);
 
+const utf8Encoder = new TextEncoder();
+
+export function utf8ByteLength(str: string): number {
+  return utf8Encoder.encode(str).length;
+}
+
+function normalizeDataUrlPrefix(dataUrl: string): string {
+  return dataUrl.trim().replace(DATA_URL_PREFIX_REGEX, (prefix) => prefix.toLowerCase());
+}
+
+function isValidRasterDataUrl(dataUrl: string): boolean {
+  return STRICT_FIRESTORE_DATA_URL_REGEX.test(dataUrl);
+}
+
+function computeScaledDimensions(
+  srcWidth: number,
+  srcHeight: number,
+  maxDim: number
+): { width: number; height: number } {
+  let width = srcWidth;
+  let height = srcHeight;
+
+  if (width > maxDim || height > maxDim) {
+    if (width >= height) {
+      height = Math.max(1, Math.round((height * maxDim) / width));
+      width = Math.max(1, Math.round(maxDim));
+    } else {
+      width = Math.max(1, Math.round((width * maxDim) / height));
+      height = Math.max(1, Math.round(maxDim));
+    }
+  } else {
+    width = Math.max(1, Math.round(width));
+    height = Math.max(1, Math.round(height));
+  }
+
+  return { width, height };
+}
+
+function drawImageToCanvas(
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  img: Pick<HTMLImageElement, 'width' | 'height'>,
+  srcWidth: number,
+  srcHeight: number,
+  maxDim: number,
+  fillWhiteBackground: boolean
+): { width: number; height: number } {
+  const { width, height } = computeScaledDimensions(srcWidth, srcHeight, maxDim);
+  canvas.width = width;
+  canvas.height = height;
+
+  if (fillWhiteBackground) {
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+  } else if (typeof ctx.clearRect === 'function') {
+    ctx.clearRect(0, 0, width, height);
+  }
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img as CanvasImageSource, 0, 0, width, height);
+  return { width, height };
+}
+
+/**
+ * Progressively optimizes a decoded image onto a canvas until the Base64
+ * data URL fits within `maxBytes` (default 490 KB, leaving headroom under
+ * Firestore's 500,000-byte limit) with a strictly lowercase MIME prefix.
+ */
+export function optimizeCanvasToDataUrl(
+  canvas: HTMLCanvasElement,
+  img: Pick<HTMLImageElement, 'width' | 'height'> &
+    Partial<Pick<HTMLImageElement, 'naturalWidth' | 'naturalHeight'>>,
+  preferredMime: string = 'image/jpeg',
+  initialMaxDim: number = 1200,
+  maxBytes: number = MAX_FIRESTORE_DATA_URL_BYTES
+): string {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+
+  const srcWidth = img.naturalWidth || img.width;
+  const srcHeight = img.naturalHeight || img.height;
+  if (!Number.isFinite(srcWidth) || !Number.isFinite(srcHeight) || srcWidth <= 0 || srcHeight <= 0) {
+    return '';
+  }
+
+  const normalizedPreferred = preferredMime.toLowerCase();
+  const firstMime = normalizedPreferred === 'image/png' ? 'image/png' : 'image/jpeg';
+  const fillWhiteFirst = firstMime === 'image/jpeg';
+
+  let bestCandidate = '';
+  let bestBytes = Number.POSITIVE_INFINITY;
+
+  const tryEncode = (mime: string, quality?: number): string | null => {
+    let raw: string;
+    try {
+      raw = quality !== undefined ? canvas.toDataURL(mime, quality) : canvas.toDataURL(mime);
+    } catch {
+      return null;
+    }
+    const candidate = normalizeDataUrlPrefix(raw);
+    if (!isValidRasterDataUrl(candidate)) {
+      return null;
+    }
+    const bytes = utf8ByteLength(candidate);
+    if (bytes < bestBytes) {
+      bestCandidate = candidate;
+      bestBytes = bytes;
+    }
+    return bytes <= maxBytes ? candidate : null;
+  };
+
+  // Pass 1: Preferred MIME at initial max dimension (preserves transparency for small PNGs)
+  drawImageToCanvas(canvas, ctx, img, srcWidth, srcHeight, initialMaxDim, fillWhiteFirst);
+  const initialFit =
+    firstMime === 'image/png' ? tryEncode('image/png') : tryEncode('image/jpeg', 0.86);
+  if (initialFit) {
+    return initialFit;
+  }
+
+  // Pass 2: Re-encode as white-backed JPEG across stepped quality levels
+  if (!fillWhiteFirst) {
+    drawImageToCanvas(canvas, ctx, img, srcWidth, srcHeight, initialMaxDim, true);
+  }
+  for (const quality of JPEG_INITIAL_QUALITIES) {
+    const fit = tryEncode('image/jpeg', quality);
+    if (fit) {
+      return fit;
+    }
+  }
+
+  // Pass 3: Iteratively shrink dimensions by 0.78 down to 240px and retry JPEG qualities
+  let currentMaxDim = Math.min(initialMaxDim, Math.max(srcWidth, srcHeight));
+  while (currentMaxDim > MIN_CANVAS_MAX_DIM) {
+    const nextMaxDim = Math.max(MIN_CANVAS_MAX_DIM, Math.round(currentMaxDim * CANVAS_SHRINK_FACTOR));
+    if (nextMaxDim >= currentMaxDim) break;
+    currentMaxDim = nextMaxDim;
+
+    drawImageToCanvas(canvas, ctx, img, srcWidth, srcHeight, currentMaxDim, true);
+    for (const quality of JPEG_SHRINK_QUALITIES) {
+      const fit = tryEncode('image/jpeg', quality);
+      if (fit) {
+        return fit;
+      }
+    }
+  }
+
+  return bestCandidate;
+}
+
 /**
  * Optimizes and converts an uploaded File to a clean Base64 data URL.
- * Automatically resizes large camera/phone photos to max dimension
- * to maintain crisp fidelity while keeping local state responsive.
+ * Automatically resizes and re-encodes large camera/phone photos so the
+ * encoded Base64 string stays safely under Firestore's 500,000-byte limit.
  */
 function processAndOptimizeImage(
   file: File,
   maxDimension: number = 1200,
-  quality: number = 0.88
+  maxBytes: number = MAX_FIRESTORE_DATA_URL_BYTES
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => {
+      const rawDataUrl = typeof event.target?.result === 'string' ? event.target.result : '';
+      if (!rawDataUrl) {
+        reject(new Error('Could not read image file.'));
+        return;
+      }
+
+      const normalizedRaw = normalizeDataUrlPrefix(rawDataUrl);
       const img = new Image();
       img.onload = () => {
-        let width = img.width;
-        let height = img.height;
-
-        if (width > maxDimension || height > maxDimension) {
-          if (width > height) {
-            height = Math.round((height * maxDimension) / width);
-            width = maxDimension;
-          } else {
-            width = Math.round((width * maxDimension) / height);
-            height = maxDimension;
-          }
-        }
-
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          resolve(event.target?.result as string);
-          return;
-        }
-
-        // High quality smoothing
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.drawImage(img, 0, 0, width, height);
-
-        const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-        const dataUrl = canvas.toDataURL(mimeType, quality);
-        resolve(dataUrl);
+        const preferredMime =
+          file.type.toLowerCase() === 'image/png' ? 'image/png' : 'image/jpeg';
+        const optimized = optimizeCanvasToDataUrl(
+          canvas,
+          img,
+          preferredMime,
+          maxDimension,
+          maxBytes
+        );
+        resolve(optimized || normalizedRaw);
       };
       img.onerror = () => {
-        // Fallback to raw dataURL if canvas draw fails
-        resolve(event.target?.result as string);
+        // Fallback to normalized raw data URL; handleFile enforces size & format limits
+        resolve(normalizedRaw);
       };
-      img.src = event.target?.result as string;
+      img.src = rawDataUrl;
     };
-    reader.onerror = reject;
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read image file.'));
     reader.readAsDataURL(file);
   });
 }
@@ -97,6 +246,11 @@ export const PhotoUpload: React.FC<PhotoUploadProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isAvatar = aspectRatio === 'avatar';
+  const base64Bytes = value && value.startsWith('data:') ? utf8ByteLength(value) : null;
+  const base64SizeKb =
+    base64Bytes !== null ? Math.max(1, Math.round(base64Bytes / 1024)) : null;
+  const isWithinStorageCap =
+    base64Bytes === null || base64Bytes <= FIRESTORE_HARD_DATA_URL_LIMIT;
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -108,7 +262,7 @@ export const PhotoUpload: React.FC<PhotoUploadProps> = ({
         return;
       }
 
-      // Validate file size
+      // Validate raw file size
       const maxBytes = maxSizeMB * 1024 * 1024;
       if (file.size > maxBytes) {
         setErrorMessage(`File is too large. Please upload an image under ${maxSizeMB}MB.`);
@@ -118,8 +272,30 @@ export const PhotoUpload: React.FC<PhotoUploadProps> = ({
       try {
         setIsProcessing(true);
         const maxDim = isAvatar ? 500 : 1200;
-        const dataUrl = await processAndOptimizeImage(file, maxDim);
-        onChange(dataUrl);
+        const dataUrl = await processAndOptimizeImage(
+          file,
+          maxDim,
+          MAX_FIRESTORE_DATA_URL_BYTES
+        );
+        const normalizedDataUrl = normalizeDataUrlPrefix(dataUrl);
+        const encodedBytes = utf8ByteLength(normalizedDataUrl);
+
+        if (encodedBytes > FIRESTORE_HARD_DATA_URL_LIMIT) {
+          const encodedKb = Math.ceil(encodedBytes / 1024);
+          setErrorMessage(
+            `This image could not be optimized to < 500 KB (encoded size: ${encodedKb} KB). Please choose a smaller image or paste an external image URL.`
+          );
+          return;
+        }
+
+        if (!isValidRasterDataUrl(normalizedDataUrl)) {
+          setErrorMessage(
+            'The selected image could not be encoded as a supported raster image (PNG, JPEG, WEBP, GIF).'
+          );
+          return;
+        }
+
+        onChange(normalizedDataUrl);
       } catch (err) {
         console.error('Error processing image:', err);
         setErrorMessage('Failed to process image file. Please try another image.');
@@ -156,6 +332,7 @@ export const PhotoUpload: React.FC<PhotoUploadProps> = ({
     if (e.target.files && e.target.files.length > 0) {
       handleFile(e.target.files[0]);
     }
+    e.target.value = '';
   };
 
   const handleApplyUrl = (e?: React.SyntheticEvent) => {
@@ -184,9 +361,23 @@ export const PhotoUpload: React.FC<PhotoUploadProps> = ({
             {label}
           </label>
           {value && (
-            <span className="text-[11px] font-medium text-emerald-700 flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-              Photo loaded
+            <span
+              className={`text-[11px] font-medium flex items-center gap-1 px-2 py-0.5 rounded-full border ${
+                isWithinStorageCap
+                  ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                  : 'text-amber-800 bg-amber-50 border-amber-200'
+              }`}
+            >
+              {isWithinStorageCap ? (
+                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+              ) : (
+                <AlertCircle className="w-3 h-3 text-amber-600" />
+              )}
+              {base64SizeKb !== null
+                ? isWithinStorageCap
+                  ? `Ready · ${base64SizeKb} KB`
+                  : `${base64SizeKb} KB (> 500 KB)`
+                : 'Photo loaded'}
             </span>
           )}
         </div>
@@ -223,7 +414,7 @@ export const PhotoUpload: React.FC<PhotoUploadProps> = ({
                 src={value}
                 alt="Uploaded preview"
                 referrerPolicy="no-referrer"
-                className="w-full h-full object-cover object-center"
+                className={`w-full h-full object-cover ${isAvatar ? 'object-top' : 'object-center'}`}
                 onError={(e) => {
                   (e.target as HTMLElement).style.opacity = '0.3';
                 }}
@@ -242,8 +433,10 @@ export const PhotoUpload: React.FC<PhotoUploadProps> = ({
                   {value.startsWith('data:') ? 'Custom Photo Uploaded from Device' : 'Photo Configured'}
                 </p>
                 <p className="text-[11px] text-[#566771] mt-0.5">
-                  {value.startsWith('data:')
-                    ? 'Stored in high resolution and ready for publication'
+                  {base64SizeKb !== null
+                    ? isWithinStorageCap
+                      ? `Automatically optimized to < 500 KB (${base64SizeKb} KB)`
+                      : `Encoded size (${base64SizeKb} KB) exceeds the 500 KB limit`
                     : 'Source: ' + value.slice(0, 42) + '...'}
                 </p>
               </div>
@@ -310,7 +503,7 @@ export const PhotoUpload: React.FC<PhotoUploadProps> = ({
 
               <div className="inline-flex items-center gap-2 text-[10px] font-semibold text-[#566771] uppercase tracking-wider bg-white px-2.5 py-1 rounded-full border border-[#bec7d2]/60 shadow-2xs">
                 <ImageIcon className="w-3 h-3 text-[#006191]" />
-                <span>PNG, JPG, WEBP or GIF (Max {maxSizeMB}MB)</span>
+                <span>PNG, JPG, WEBP or GIF (Up to {maxSizeMB}MB · Auto-optimized &lt; 500 KB)</span>
               </div>
             </div>
           )}
@@ -319,7 +512,10 @@ export const PhotoUpload: React.FC<PhotoUploadProps> = ({
 
       {/* Error Banner */}
       {errorMessage && (
-        <div className="flex items-center gap-2 p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs font-medium animate-in fade-in duration-200">
+        <div
+          role="alert"
+          className="flex items-center gap-2 p-2.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs font-medium animate-in fade-in duration-200"
+        >
           <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
           <span>{errorMessage}</span>
         </div>

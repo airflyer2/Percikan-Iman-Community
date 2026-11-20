@@ -983,6 +983,92 @@ describe('Firestore Security Rules (Local Emulator)', () => {
       await assertFails(setDoc(doc(c.memberActive.firestore(), 'boardMembers', 'bm-2'), boardDoc));
       await assertSucceeds(deleteDoc(doc(c.boardMgr.firestore(), 'boardMembers', 'bm-1')));
     });
+
+    it('validates optional imagePosition enum on create and update', async () => {
+      const c = contexts();
+      const baseBoardDoc = {
+        id: 'bm-pos-base',
+        name: 'Sister Lusi',
+        role: 'Secretary',
+        department: 'Executive Leadership',
+        imageUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=500',
+        bio: 'Board secretary',
+        email: '',
+        order: 1,
+      };
+
+      // Omitting imagePosition remains valid on create and update
+      await assertSucceeds(
+        setDoc(doc(c.admin.firestore(), 'boardMembers', 'bm-pos-omitted'), {
+          ...baseBoardDoc,
+          id: 'bm-pos-omitted',
+        }),
+      );
+      await assertSucceeds(
+        updateDoc(doc(c.boardMgr.firestore(), 'boardMembers', 'bm-pos-omitted'), {
+          bio: 'Updated bio without imagePosition',
+        }),
+      );
+
+      // Valid enum values ('top', 'center', 'bottom') are allowed on create and update
+      for (const pos of ['top', 'center', 'bottom'] as const) {
+        const docId = `bm-pos-${pos}`;
+        await assertSucceeds(
+          setDoc(doc(c.admin.firestore(), 'boardMembers', docId), {
+            ...baseBoardDoc,
+            id: docId,
+            imagePosition: pos,
+          }),
+        );
+        await assertSucceeds(
+          updateDoc(doc(c.boardMgr.firestore(), 'boardMembers', 'bm-pos-omitted'), {
+            imagePosition: pos,
+          }),
+        );
+      }
+
+      // Removing imagePosition via deleteField() returns doc to valid omitted state
+      await assertSucceeds(
+        updateDoc(doc(c.admin.firestore(), 'boardMembers', 'bm-pos-omitted'), {
+          imagePosition: deleteField(),
+        }),
+      );
+
+      // Unauthorized roles are still denied even with a valid imagePosition
+      await assertFails(
+        setDoc(doc(c.memberActive.firestore(), 'boardMembers', 'bm-pos-unauth'), {
+          ...baseBoardDoc,
+          id: 'bm-pos-unauth',
+          imagePosition: 'top',
+        }),
+      );
+
+      // Invalid values and wrong types are denied on both create and update
+      for (const badPosition of [
+        'left',
+        'right',
+        'TOP',
+        '',
+        123,
+        true,
+        null,
+        ['top'],
+        { vertical: 'top' },
+      ]) {
+        await assertFails(
+          setDoc(doc(c.admin.firestore(), 'boardMembers', 'bm-pos-invalid'), {
+            ...baseBoardDoc,
+            id: 'bm-pos-invalid',
+            imagePosition: badPosition,
+          }),
+        );
+        await assertFails(
+          updateDoc(doc(c.boardMgr.firestore(), 'boardMembers', 'bm-pos-omitted'), {
+            imagePosition: badPosition,
+          }),
+        );
+      }
+    });
   });
 
   describe('6. /siteConfig/bootstrap', () => {

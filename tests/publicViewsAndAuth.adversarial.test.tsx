@@ -311,7 +311,8 @@ describe('Public Views & Auth Adversarial Suite (T14–T18)', () => {
     expect(normalizeScreenToPath('home')).toBe('/');
     expect(normalizeScreenToPath('auth')).toBe('/login');
     expect(normalizeScreenToPath('programs')).toBe('/programs');
-    expect(normalizeScreenToPath('brand')).toBe('/brand');
+    expect(normalizeScreenToPath('gallery')).toBe('/gallery');
+    expect(normalizeScreenToPath('brand')).toBe('/');
     expect(normalizeScreenToPath('assembly')).toBe('/assembly');
   });
 });

@@ -44,7 +44,6 @@ export interface TranslationDictionary {
     donate: string;
     about: string;
     contact: string;
-    brandKit: string;
     member: string;
     myMembership: string;
     admin: string;
@@ -80,6 +79,14 @@ export interface TranslationDictionary {
     featuredProgramsTitle: string;
     featuredProgramsSubtitle: string;
     viewAll6Programs: string;
+    nextEventStartsIn: string;
+    nextEventLiveToday: string;
+    nextEventPast: string;
+    nextEventDetails: string;
+    countdownDay: string;
+    countdownDays: string;
+    countdownHours: string;
+    countdownMinutes: string;
   };
   // Programs View
   programs: {

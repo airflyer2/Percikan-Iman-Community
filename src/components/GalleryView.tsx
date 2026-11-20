@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { gsap } from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { useGSAP } from '@gsap/react';
 import { EventPhoto } from '../types';
 import { EVENT_PHOTOS, INSTAGRAM_URL, INSTAGRAM_HANDLE } from '../constants';
 import { useAuth } from '../context/AuthContext';
+import { RollingTextButton } from './RollingTextButton';
 import {
   Camera,
   Search,
@@ -19,15 +23,75 @@ import {
   Tag
 } from 'lucide-react';
 
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  gsap.registerPlugin(ScrollTrigger, useGSAP);
+}
+
 export const GalleryView: React.FC = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const shareTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [photos] = useState<EventPhoto[]>(EVENT_PHOTOS);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedYear, setSelectedYear] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activePhoto, setActivePhoto] = useState<EventPhoto | null>(null);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (shareTimerRef.current) clearTimeout(shareTimerRef.current);
+    };
+  }, []);
+
+  useGSAP(
+    () => {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+      const mm = gsap.matchMedia();
+      mm.add(
+        {
+          motionOk: '(prefers-reduced-motion: no-preference)',
+          reduceMotion: '(prefers-reduced-motion: reduce)'
+        },
+        (context) => {
+          const { motionOk, reduceMotion } = context.conditions ?? {};
+          if (!motionOk || reduceMotion) return;
+
+          const heroItems = gsap.utils.toArray<HTMLElement>('[data-gsap="gallery-hero"]');
+          if (heroItems.length > 0) {
+            gsap.from(heroItems, {
+              y: 16,
+              opacity: 0,
+              duration: 0.65,
+              stagger: 0.08,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity'
+            });
+          }
+
+          const cards = gsap.utils.toArray<HTMLElement>('[data-gsap="gallery-card"]');
+          if (cards.length > 0) {
+            gsap.from(cards, {
+              y: 20,
+              opacity: 0,
+              duration: 0.55,
+              stagger: 0.06,
+              ease: 'power3.out',
+              clearProps: 'transform,opacity',
+              scrollTrigger: {
+                trigger: cards[0],
+                start: 'top 92%',
+                once: true
+              }
+            });
+          }
+        }
+      );
+      return () => mm.revert();
+    },
+    { scope: rootRef }
+  );
 
   const categories = ['All', 'Familienlager', 'Pengajian', 'Ramadan & Eid', 'Youth & Education', 'Charity & Qurban'];
   const years = ['All', '2026', '2025'];
@@ -47,18 +111,31 @@ export const GalleryView: React.FC = () => {
   });
 
   const handleSharePhoto = (photo: EventPhoto) => {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(`${window.location.origin} - ${photo.title} (${photo.eventTitle})`);
-      setShareFeedback('Link in Zwischenablage kopiert!');
-      setTimeout(() => setShareFeedback(null), 2500);
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard
+        .writeText(`${window.location.origin} - ${photo.title} (${photo.eventTitle})`)
+        .then(() => {
+          setShareFeedback('Link in Zwischenablage kopiert!');
+          if (shareTimerRef.current) clearTimeout(shareTimerRef.current);
+          shareTimerRef.current = setTimeout(() => {
+            setShareFeedback(null);
+            shareTimerRef.current = null;
+          }, 2500);
+        })
+        .catch(() => {
+          // Clipboard permission denied or unavailable
+        });
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#f9f9ff] py-10 px-4 sm:px-6">
+    <div ref={rootRef} className="min-h-screen bg-[#f9f9ff] py-10 px-4 sm:px-6">
       <div className="max-w-[1200px] mx-auto space-y-8">
         {/* Header section with Instagram Link and Member Notice */}
-        <div className="bg-white rounded-2xl border border-[#bec7d2]/60 p-6 md:p-8 shadow-xs">
+        <div
+          data-gsap="gallery-hero"
+          className="bg-white rounded-2xl border border-[#bec7d2]/60 p-6 md:p-8 shadow-xs"
+        >
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
             <div>
               <div className="flex items-center gap-2 mb-2">
@@ -126,14 +203,14 @@ export const GalleryView: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <button
+              <RollingTextButton
                 type="button"
+                magnetic={false}
                 onClick={() => navigate('/login')}
+                leftIcon={<KeyRound className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
+                label="Als Mitglied anmelden"
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#006191] hover:bg-[#007bb6] text-white text-xs font-bold rounded-lg transition-colors shrink-0 cursor-pointer shadow-2xs"
-              >
-                <KeyRound className="w-3.5 h-3.5" />
-                <span>Als Mitglied anmelden</span>
-              </button>
+              />
             </div>
           )}
         </div>
@@ -219,23 +296,24 @@ export const GalleryView: React.FC = () => {
             <p className="text-xs text-[#566771] mt-1 max-w-sm mx-auto">
               Für diese Filterkombination liegen aktuell keine Bilder vor. Bitte passen Sie die Kategorie oder den Suchbegriff an.
             </p>
-            <button
+            <RollingTextButton
               type="button"
+              magnetic={false}
               onClick={() => {
                 setSelectedCategory('All');
                 setSelectedYear('All');
                 setSearchQuery('');
               }}
-              className="mt-4 px-4 py-2 bg-[#eff3ff] text-[#006191] rounded-xl text-xs font-bold hover:bg-[#d3e5f1] transition-colors"
-            >
-              Filter zurücksetzen
-            </button>
+              label="Filter zurücksetzen"
+              className="mt-4 px-4 py-2 bg-[#eff3ff] text-[#006191] rounded-xl text-xs font-bold hover:bg-[#d3e5f1] transition-colors cursor-pointer inline-flex items-center justify-center"
+            />
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredPhotos.map((photo) => (
               <div
                 key={photo.id}
+                data-gsap="gallery-card"
                 onClick={() => setActivePhoto(photo)}
                 className="group bg-white rounded-2xl border border-[#bec7d2]/60 overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col"
               >
@@ -320,10 +398,11 @@ export const GalleryView: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setActivePhoto(null)}
+                aria-label="Schliessen"
                 className="absolute top-4 right-4 z-10 p-2 text-white bg-black/50 hover:bg-black/80 rounded-full transition-colors cursor-pointer"
                 title="Schliessen"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
 
               {/* Photo Display */}
@@ -354,14 +433,14 @@ export const GalleryView: React.FC = () => {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2">
-                    <button
+                    <RollingTextButton
                       type="button"
+                      magnetic={false}
                       onClick={() => handleSharePhoto(activePhoto)}
+                      leftIcon={<Share2 className="w-4 h-4 shrink-0" aria-hidden="true" />}
+                      label="Teilen"
                       className="px-3.5 py-2 bg-[#eff3ff] hover:bg-[#d3e5f1] text-[#006191] rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Share2 className="w-4 h-4" />
-                      <span>Teilen</span>
-                    </button>
+                    />
 
                     <a
                       href={INSTAGRAM_URL}

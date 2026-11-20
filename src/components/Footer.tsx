@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { LOGO_URL, INSTAGRAM_URL, INSTAGRAM_HANDLE } from '../constants';
 import { useLanguage } from '../i18n';
 import { LanguageSelector } from './LanguageSelector';
-import { Instagram, Camera, ExternalLink, Share2, Palette } from 'lucide-react';
+import { Instagram, Camera, ExternalLink, Share2 } from 'lucide-react';
 
 interface FooterProps {
   onOpenModal: (type: 'terms' | 'privacy' | 'faq' | 'volunteer' | 'report') => void;
@@ -93,14 +93,6 @@ export const Footer: React.FC<FooterProps> = ({ onOpenModal }) => {
             >
               <Camera className="w-3.5 h-3.5 text-[#1D5B8C]" aria-hidden="true" />
               <span>Fotokatalog (Events)</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/brand')}
-              className="text-sm text-[#4A5E72] hover:text-[#1D5B8C] text-left transition-colors cursor-pointer flex items-center gap-1.5 py-0.5"
-            >
-              <Palette className="w-3.5 h-3.5 text-[#1D5B8C]" aria-hidden="true" />
-              <span>{t.nav.brandKit}</span>
             </button>
             <button
               type="button"

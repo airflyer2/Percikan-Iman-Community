@@ -71,6 +71,7 @@ import {
   Smartphone
 } from 'lucide-react';
 import { DigitalMembershipCard } from './DigitalMembershipCard';
+import { RollingTextButton } from './RollingTextButton';
 import { INSTAGRAM_URL, INSTAGRAM_HANDLE } from '../constants';
 
 interface MemberProfileViewProps {
@@ -763,7 +764,7 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                 {formData.address?.city && (
                   <span className="inline-flex items-center gap-1">
                     <MapPin className="w-3.5 h-3.5 text-[#006191]" />
-                    {formData.address.postalCode} {formData.address.city}, {formData.address.country || 'Germany'}
+                    {formData.address.postalCode} {formData.address.city}, {formData.address.country || 'Switzerland'}
                   </span>
                 )}
               </p>
@@ -850,20 +851,20 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
 
           {/* Top Actions */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-[#bec7d2]/40">
-            <button
+            <RollingTextButton
               type="button"
               id="save-top-btn"
+              magnetic={false}
               onClick={() => void handleSave()}
               disabled={!hasChanges || isSaving}
+              leftIcon={<Save className="w-4 h-4 shrink-0" aria-hidden="true" />}
+              label={isSaving ? 'Saving...' : hasChanges ? 'Save Changes' : 'All Saved'}
               className={`px-4 py-2 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer ${
                 hasChanges && !isSaving
                   ? 'bg-[#006191] text-white hover:bg-[#007bb6] animate-pulse'
                   : 'bg-[#eff3ff] text-[#566771] cursor-not-allowed'
               }`}
-            >
-              <Save className="w-4 h-4" />
-              <span>{isSaving ? 'Saving...' : hasChanges ? 'Save Changes' : 'All Saved'}</span>
-            </button>
+            />
 
             <button
               type="button"
@@ -898,14 +899,14 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <button
+              <RollingTextButton
                 type="button"
+                magnetic={false}
                 onClick={() => setShowTwintPayModal(true)}
+                leftIcon={<Smartphone className="w-4 h-4 shrink-0" aria-hidden="true" />}
+                label="Pay via TWINT Now ⚡"
                 className="px-4 py-2.5 bg-[#006191] hover:bg-[#007bb6] text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-2"
-              >
-                <Smartphone className="w-4 h-4" />
-                <span>Pay via TWINT Now ⚡</span>
-              </button>
+              />
             </div>
           </div>
         </div>
@@ -1561,7 +1562,7 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                             type="tel"
                             value={formData.spouse?.phone || ''}
                             onChange={(e) => updateSpouseField('phone', e.target.value)}
-                            placeholder="+49 ..."
+                            placeholder="+41 ..."
                             className="w-full px-2.5 py-1.5 bg-white border border-[#bec7d2] rounded-lg text-xs outline-none focus:border-[#006191]"
                           />
                         </div>
@@ -1808,7 +1809,7 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                   type="tel"
                   value={formData.phone || ''}
                   onChange={(e) => updateField('phone', e.target.value)}
-                  placeholder="+49 176 1234 5678"
+                  placeholder="+41 79 123 45 67"
                   className="w-full px-3.5 py-2.5 bg-[#f9f9ff] border border-[#bec7d2] rounded-xl text-sm font-medium outline-none focus:border-[#006191] focus:bg-white"
                 />
               </div>
@@ -1843,7 +1844,7 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                     type="text"
                     value={formData.address?.street || ''}
                     onChange={(e) => updateAddressField('street', e.target.value)}
-                    placeholder="e.g. Kaiser-Friedrich-Strasse 42, Apt 3B"
+                    placeholder="e.g. Bahnhofstrasse 42, Apt 3B"
                     className="w-full px-3 py-2 bg-[#f9f9ff] border border-[#bec7d2] rounded-lg text-xs outline-none focus:border-[#006191] focus:bg-white"
                   />
                 </div>
@@ -1856,7 +1857,7 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                     type="text"
                     value={formData.address?.city || ''}
                     onChange={(e) => updateAddressField('city', e.target.value)}
-                    placeholder="e.g. Frankfurt am Main"
+                    placeholder="e.g. Zürich"
                     className="w-full px-3 py-2 bg-[#f9f9ff] border border-[#bec7d2] rounded-lg text-xs outline-none focus:border-[#006191] focus:bg-white"
                   />
                 </div>
@@ -1869,7 +1870,7 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                     type="text"
                     value={formData.address?.postalCode || ''}
                     onChange={(e) => updateAddressField('postalCode', e.target.value)}
-                    placeholder="e.g. 60329"
+                    placeholder="e.g. 8001"
                     className="w-full px-3 py-2 bg-[#f9f9ff] border border-[#bec7d2] rounded-lg text-xs font-mono outline-none focus:border-[#006191] focus:bg-white"
                   />
                 </div>
@@ -1879,12 +1880,12 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                     Country of Residence
                   </label>
                   <select
-                    value={formData.address?.country || 'Germany'}
+                    value={formData.address?.country || 'Switzerland'}
                     onChange={(e) => updateAddressField('country', e.target.value)}
                     className="w-full px-3 py-2 bg-[#f9f9ff] border border-[#bec7d2] rounded-lg text-xs outline-none focus:border-[#006191] focus:bg-white"
                   >
-                    <option value="Germany">Germany</option>
                     <option value="Switzerland">Switzerland</option>
+                    <option value="Germany">Germany</option>
                     <option value="Austria">Austria</option>
                     <option value="Netherlands">Netherlands</option>
                     <option value="Indonesia">Indonesia</option>
@@ -1923,14 +1924,14 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                   Official historical records of status transitions, relocation notices, and General Assembly resolutions.
                 </p>
               </div>
-              <button
+              <RollingTextButton
                 type="button"
+                magnetic={false}
                 onClick={() => setIsStatusModalOpen(true)}
+                leftIcon={<Plane className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />}
+                label="Submit Formal Status Declaration"
                 className="px-3 py-1.5 bg-[#006191] text-white hover:bg-[#007bb6] text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
-              >
-                <Plane className="w-3.5 h-3.5" />
-                <span>Submit Formal Status Declaration</span>
-              </button>
+              />
             </div>
 
             {/* Pending Formal Status Request Banner */}
@@ -2182,7 +2183,7 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                   <Plane className="w-4 h-4 text-amber-700" />
                   <div>
                     <p className="text-xs font-bold text-amber-950">Relocating Abroad</p>
-                    <p className="text-[10px] text-amber-800">Leaving Germany / returning home</p>
+                    <p className="text-[10px] text-amber-800">Leaving Switzerland / returning home</p>
                   </div>
                 </div>
                 <ArrowRight className="w-3.5 h-3.5 text-amber-700" />
@@ -2331,12 +2332,12 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                 >
                   Cancel
                 </button>
-                <button
+                <RollingTextButton
                   type="submit"
-                  className="px-5 py-2 bg-[#006191] text-white font-bold text-xs rounded-xl hover:bg-[#007bb6] transition-colors cursor-pointer shadow-xs"
-                >
-                  Submit Request for Admin Approval
-                </button>
+                  magnetic={false}
+                  label="Submit Request for Admin Approval"
+                  className="px-5 py-2 bg-[#006191] text-white font-bold text-xs rounded-xl hover:bg-[#007bb6] transition-colors cursor-pointer shadow-xs inline-flex items-center justify-center"
+                />
               </div>
             </form>
           </div>
@@ -2464,12 +2465,12 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                 >
                   Cancel
                 </button>
-                <button
+                <RollingTextButton
                   type="submit"
-                  className="px-5 py-2 bg-[#006191] text-white font-bold text-xs rounded-xl hover:bg-[#007bb6] transition-colors cursor-pointer shadow-xs"
-                >
-                  Register Formal Declaration
-                </button>
+                  magnetic={false}
+                  label="Register Formal Declaration"
+                  className="px-5 py-2 bg-[#006191] text-white font-bold text-xs rounded-xl hover:bg-[#007bb6] transition-colors cursor-pointer shadow-xs inline-flex items-center justify-center"
+                />
               </div>
             </form>
           </div>
@@ -2547,7 +2548,7 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                   rows={3}
                   value={exemptionReasonInput}
                   onChange={(e) => setExemptionReasonInput(e.target.value)}
-                  placeholder="Provide supporting details (e.g., enrolled at RWTH Aachen semester 2026/27, active coordinator for youth halaqah)."
+                  placeholder="Provide supporting details (e.g., enrolled at ETH Zürich semester 2026/27, active coordinator for youth halaqah)."
                   className="w-full p-3 bg-[#f9f9ff] border border-[#bec7d2] rounded-xl text-xs outline-none focus:border-[#006191]"
                 />
               </div>
@@ -2560,12 +2561,12 @@ export const MemberProfileView: React.FC<MemberProfileViewProps> = ({
                 >
                   Cancel
                 </button>
-                <button
+                <RollingTextButton
                   type="submit"
-                  className="px-5 py-2 bg-purple-700 text-white font-bold text-xs rounded-xl hover:bg-purple-800 transition-colors cursor-pointer shadow-xs"
-                >
-                  Submit for General Assembly Vote
-                </button>
+                  magnetic={false}
+                  label="Submit for General Assembly Vote"
+                  className="px-5 py-2 bg-purple-700 text-white font-bold text-xs rounded-xl hover:bg-purple-800 transition-colors cursor-pointer shadow-xs inline-flex items-center justify-center"
+                />
               </div>
             </form>
           </div>

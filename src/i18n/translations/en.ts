@@ -7,7 +7,6 @@ export const en: TranslationDictionary = {
     donate: 'Donate & Transparency',
     about: 'About Us',
     contact: 'Contact',
-    brandKit: 'Brand Kit & Design System',
     member: 'Member Portal',
     myMembership: 'My Membership',
     admin: 'Admin',
@@ -41,7 +40,15 @@ export const en: TranslationDictionary = {
     joinPortal: 'Join member portal',
     featuredProgramsTitle: 'Featured Programs',
     featuredProgramsSubtitle: 'Join an upcoming session or volunteer your time.',
-    viewAll6Programs: 'View All 6 Programs'
+    viewAll6Programs: 'View All 6 Programs',
+    nextEventStartsIn: 'Starts in',
+    nextEventLiveToday: 'Today · in progress',
+    nextEventPast: 'Past event',
+    nextEventDetails: 'View details',
+    countdownDay: 'day',
+    countdownDays: 'days',
+    countdownHours: 'hr',
+    countdownMinutes: 'min'
   },
   programs: {
     title: 'Programs & Activities',
