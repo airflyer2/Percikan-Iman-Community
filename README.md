@@ -1,5 +1,7 @@
 # Verein Percikan Iman Schweiz — Community Portal & Administration
 
+![CI & Deploy to Firebase](https://github.com/airflyer2/Percikan-Iman-Community/actions/workflows/deploy-firebase.yml/badge.svg)
+
 Swiss-registered non-profit association portal (Art. 60–79 ZGB, UID `CHE-382.914.820`) built with React, TypeScript, Vite, Tailwind CSS, React Router, and Cloud Firestore.
 
 ---
@@ -60,16 +62,20 @@ Key variables:
 - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`, `VITE_FIREBASE_MEASUREMENT_ID` — Firebase Web SDK configuration
 - `VITE_FIREBASE_DATABASE_ID` — Target Firestore database ID (defaults to `(default)`)
 - `VITE_USE_FIREBASE_EMULATOR` — Set to `"true"` for local Auth (`:9099`) & Firestore (`:8080`) emulator development
-- `VITE_RECAPTCHA_SITE_KEY` — Google reCAPTCHA v3 site key for **Firebase App Check** (`ReCaptchaV3Provider`), protecting public `/donationPledges` writes in production
+- `VITE_RECAPTCHA_SITE_KEY` — Google reCAPTCHA site key for **Firebase App Check**, protecting public `/donationPledges` writes in production
+- `VITE_RECAPTCHA_PROVIDER` — App Check provider mode: `"enterprise"` (`ReCaptchaEnterpriseProvider`) or `"v3"` (default `ReCaptchaV3Provider`)
 - `VITE_FIREBASE_APPCHECK_DEBUG_TOKEN` — Optional App Check debug token for local development on `localhost`
 
 ---
 
 ## Development, Testing & Emulator Commands
 
-1. **Install dependencies:**
+1. **Bootstrap & Doctor (`npm run setup`):**
+   Verifies Node.js >= 22, Java >= 11 (for local Firestore Rules Emulator runs), `.env` key status (never printing secret values), initializes `.env` from `.env.example` if missing, and rehydrates `node_modules/` via `npm ci`:
    ```bash
-   npm install
+   npm run setup
+   # Or run read-only diagnostics without writing .env or running npm ci:
+   node scripts/setup.mjs --check
    ```
 
 2. **Run local dev server (port 3000):**
@@ -90,12 +96,27 @@ Key variables:
 5. **Run Firestore Security Rules tests against the local Firestore Emulator:**
    *(Requires Java 11+ on `PATH` / `JAVA_HOME`)*
    ```bash
-   firebase emulators:exec --only firestore "npm run test:rules"
+   firebase emulators:exec --project percikan-iman-rules-test --only firestore "npm run test:rules"
    ```
 
 6. **Build for production:**
    ```bash
    npm run build
+   ```
+
+7. **Live Hosting smoke check (`npm run smoke`):**
+   Verifies that a deployed Firebase Hosting site (default `https://percikan-iman-724ae.web.app`, or any preview channel URL) returns HTTP `200` with `<div id="root">` and serves a non-empty compiled Vite JS bundle:
+   ```bash
+   npm run smoke
+   # Or check a specific URL:
+   npm run smoke -- https://percikan-iman-724ae--pr-1-example.web.app
+   ```
+
+8. **Sync production secrets to GitHub Actions (`npm run secrets:sync`):**
+   Audits (via `--check`) or uploads non-empty production keys from local `.env` to GitHub repository secrets via `gh secret set` without printing secret values:
+   ```bash
+   npm run secrets:sync -- --check
+   npm run secrets:sync
    ```
 
 ---
@@ -113,17 +134,24 @@ npm run save -- "feat: describe your change"
 - Runs `npm run lint` automatically when `node_modules/` is installed locally, commits, rebases onto `origin/main`, and pushes.
 - Uses only Node.js built-in modules, so `npm run save` works even in slimmed-disk mode when `node_modules/` has been removed.
 
-### 2. Automated Firebase Deployment
+### 2. Automated Firebase Deployment (`main`)
 Every push to `main` runs [`.github/workflows/deploy-firebase.yml`](.github/workflows/deploy-firebase.yml):
-1. Installs dependencies (`npm ci`), runs `npm run lint` (`tsc --noEmit`) and `npm test` (`vitest run`).
-2. Builds the Vite bundle with production `VITE_*` and `GEMINI_API_KEY` GitHub Actions secrets (`VITE_USE_FIREBASE_EMULATOR="false"`).
-3. Authenticates via `FIREBASE_SERVICE_ACCOUNT_PERCIKAN_IMAN_724AE` and deploys `firestore:rules`, `firestore:indexes`, and `hosting` to `percikan-iman-724ae`.
+1. Installs dependencies (`npm ci`) with Node.js 22 and Temurin Java 21.
+2. Runs `npm run lint` (`tsc --noEmit`), `npm test` (`vitest run`), and the **Firestore Rules Emulator CI gate** (`npx firebase emulators:exec --project percikan-iman-rules-test --only firestore "npm run test:rules"`).
+3. Builds the Vite bundle with production `VITE_*` (including `VITE_RECAPTCHA_SITE_KEY` and `VITE_RECAPTCHA_PROVIDER`) and `GEMINI_API_KEY` GitHub Actions secrets (`VITE_USE_FIREBASE_EMULATOR="false"`).
+4. Authenticates via `FIREBASE_SERVICE_ACCOUNT_PERCIKAN_IMAN_724AE`, deploys `firestore:rules`, `firestore:indexes`, and `hosting` to `percikan-iman-724ae`, and runs `node scripts/smoke-check.mjs https://percikan-iman-724ae.web.app`.
 
-### 3. Rehydrating Dependencies After Local Disk Cleanup
+### 3. PR Preview Channels (`pull_request` -> `main`)
+Every pull request targeting `main` from the repository runs [`.github/workflows/pr-preview.yml`](.github/workflows/pr-preview.yml):
+1. Runs `npm ci`, `npm run lint`, `npm test`, and the **Firestore Rules Emulator CI gate**.
+2. Builds an isolated preview bundle (`VITE_RECAPTCHA_SITE_KEY=""` so domain-restricted reCAPTCHA keys do not block ephemeral `--pr-*` hostnames).
+3. Deploys an ephemeral 7-day Firebase Hosting **PR Preview Channel** via `FirebaseExtended/action-hosting-deploy@v0` and runs `node scripts/smoke-check.mjs` against the live preview URL.
+
+### 4. Rehydrating Dependencies After Local Disk Cleanup
 If `node_modules/` was deleted locally to save disk space, restore exact locked dependencies anytime with:
 
 ```bash
-npm ci
+npm run setup
 ```
 
 ---
