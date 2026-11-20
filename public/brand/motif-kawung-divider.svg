@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="48" viewBox="0 0 720 48" role="img" aria-labelledby="motif-divider-title">
+  <title id="motif-divider-title">Anatomy of the Spark — Kawung-Facet Chapter Divider</title>
+  <!-- Hairline horizontal rules -->
+  <line x1="36" y1="24" x2="292" y2="24" stroke="#D5CFC4" stroke-width="1.25"/>
+  <line x1="428" y1="24" x2="684" y2="24" stroke="#D5CFC4" stroke-width="1.25"/>
+  <!-- Left & right Swiss "+" registration anchors -->
+  <g stroke="#5B7E9E" stroke-width="1.25" stroke-linecap="square">
+    <line x1="14" y1="24" x2="26" y2="24"/><line x1="20" y1="18" x2="20" y2="30"/>
+    <line x1="694" y1="24" x2="706" y2="24"/><line x1="700" y1="18" x2="700" y2="30"/>
+  </g>
+  <!-- Central triple Kawung-facet cluster -->
+  <g transform="translate(360 24)">
+    <!-- Flanking Steel-Blue diamonds -->
+    <polygon points="-46,0 -34,-10 -22,0 -34,10" fill="#DFE8F0" stroke="#5B7E9E" stroke-width="1.2"/>
+    <polygon points="22,0 34,-10 46,0 34,10" fill="#DFE8F0" stroke="#5B7E9E" stroke-width="1.2"/>
+    <!-- Central 8-point Kawung star -->
+    <polygon points="0,-18 6,-6 18,0 6,6 0,18 -6,6 -18,0 -6,-6" fill="#1D5B8C" fill-opacity="0.14" stroke="#1D5B8C" stroke-width="1.35"/>
+    <!-- Roasted Teak focal core -->
+    <polygon points="0,-7 7,0 0,7 -7,0" fill="#8C5327"/>
+  </g>
+</svg>

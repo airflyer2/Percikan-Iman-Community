@@ -1,0 +1,1096 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file assumes the following data structures:
+//
+// Collection: members
+// Document ID: {uid} (corresponds to Firebase Auth UID or seeded member ID)
+// Fields:
+//   - uid: string (optional, immutable on self-update, 1..128 chars)
+//   - emailVerified: bool (optional)
+//   - authProvider: string (optional, enum: 'password' | 'google')
+//   - name: string (required, 1..150 chars) - Member full name
+//   - email: string (required, valid email format, 3..254 chars) - Member email
+//   - phone: string (optional, 0..50 chars) - Contact phone number
+//   - address: map (optional, keys: street, city, postalCode, country) - Postal address
+//   - interest: string (optional, 0..500 chars) - Volunteer/community interests
+//   - memberCode: string (optional, 1..64 chars) - Unique Verein member code (e.g., PI-7740)
+//   - role: string (optional, 0..120 chars) - Display role label
+//   - isAdmin: bool (optional) - Administrative privileges flag
+//   - isSuperAdmin: bool (optional) - Super administrator privileges flag
+//   - canManageBoard: bool (optional) - Board management privileges flag
+//   - canScanQR: bool (optional) - Event QR & cash settlement privileges flag
+//   - joinedAt: string (optional, 0..100 chars) - Join date label
+//   - avatarUrl: string (optional, HTTP(S) <= 2048 or raster Base64 <= 500000, or '')
+//   - membershipCategory: string (optional, enum: 'personal' | 'family')
+//   - membershipStatus: string (optional, enum: 'active' | 'pending_payment' | 'relocated' | 'fee_paused' | 'inactive')
+//   - statusReason: string (optional, 0..1000 chars)
+//   - statusChangeDate: string (optional, 0..64 chars)
+//   - spouse: map (optional, keys: name, email, phone)
+//   - children: list (optional, max 15 items)
+//   - yearlyContribution: number (optional, >= 0, <= 100000)
+//   - monthlyFee: number (optional, >= 0, <= 10000)
+//   - membershipYear: number (optional, >= 1990, <= 2100)
+//   - validUntil: string (optional, 0..150 chars)
+//   - gaApprovalStatus: string (optional, enum: 'approved_current_year' | 'pending_ga_renewal' | 'expired_at_year_end')
+//   - lastGaResolutionRef: string (optional, 0..150 chars)
+//   - categoryChangeRequest: map (optional, keys: requestedCategory, requestedAt, reason, status, reviewedBy, reviewedAt, reviewNotes)
+//   - feeExemption: map (optional, keys: isExempt, votedYear, exemptionYear, approvedByGA, resolutionRef, exemptionReason, validUntil, retainsBenefits)
+//   - pendingStatusRequest: map (optional, keys: requestedStatus, reason, effectiveDate, submittedAt, destinationCountry, status, notes)
+//   - formalStatusHistory: list (optional, max 100 items)
+//   - acknowledgedEmailNotices: bool (optional)
+//   - acknowledgedMembershipFee: bool (optional)
+//   - paymentStatus: string (optional, enum: 'paid' | 'pending_payment' | 'exempt')
+//   - paymentMethod: string (optional, enum: 'twint' | 'bank_transfer' | 'cash' | 'exempt')
+//   - paidAt: string (optional, 0..100 chars)
+//   - paymentVerifiedBy: string (optional, 0..150 chars)
+//   - paymentReference: string (optional, 0..200 chars)
+//   - verifiedVoteWeight: int (optional, 0..20, board-certified GA vote weight)
+//   - voteWeightVerifiedAt: string (optional, 0..64 chars)
+//   - voteWeightVerifiedBy: string (optional, 0..150 chars)
+//
+// Collection: attendance
+// Document ID: {recordId}
+// Fields:
+//   - id, eventId, eventTitle, memberCode, memberName, memberEmail?, category, status,
+//     isFeeExempt, partyCount (1..25), partyMembers (list <= 25), scannedAt, scannedBy,
+//     feePaidChf (0..10000), verified, notes?
+//
+// Collection: programs
+// Document ID: {programId}
+// Fields: id (immutable), title, category, tag, tagColor?, iconName, description,
+//   imageUrl, dateOrSchedule, location, participantsCount?, detailedOverview
+//
+// Collection: campaigns
+// Document ID: {campaignId}
+// Fields: id (immutable), title, description, progressPercent (0..1000),
+//   currentAmount (0..100000000), goalAmount (1..100000000), isCritical?, tag?,
+//   iconName?, imageUrl?, beneficiaries?
+//
+// Collection: destinations
+// Document ID: {destinationId}
+// Fields: id (immutable), name, shortLabel, category, description, totalCollected?
+//
+// Collection: events
+// Document ID: {eventId}
+// Fields: id (immutable), title, date, time, category, location, isOnline?,
+//   onlineLink? (HTTP/HTTPS only or ''), speaker?, description, capacity?,
+//   registeredCount?, featured?, imageUrl?, regularFee?, memberSubsidizedFee?
+//
+// Collection: boardMembers
+// Document ID: {memberId}
+// Fields: id (immutable), name, role, department, imageUrl, bio, email?, phone?, order?
+//
+// Collection: siteConfig
+// Document IDs:
+//   - notice: enabled, message, badge, linkText?, linkScreen?
+//   - bootstrap: seededAt, seededBy, version? (Super Admin create-once, immutable)
+//   - gaSession: isOpen, sessionTitle, scheduledDate, activeQuestionId, openedAt?, closedAt?, openedBy?, location?
+//
+// Collection: donationPledges
+// Document ID: {pledgeId}
+// Fields: id (immutable), donorName (immutable), email (immutable), amount (1..100000, immutable),
+//   currency ('CHF', immutable), destination (immutable), date (immutable),
+//   paymentMethod (immutable), status ('Processing' on create; 'Processing'|'Promoted'|'Rejected' on update),
+//   notes?, promotedReportId? (update only)
+//
+// Collection: donationReports
+// Document ID: {reportId}
+// Fields: id (immutable), donorName, email, amount (1..100000), currency?,
+//   destination, date, paymentMethod, status ('Completed'|'Processing'|'Flagged'),
+//   notes?, sourcePledgeId?
+//
+// Collection: assemblyQuestions
+// Document ID: {questionId}
+// Fields: id (immutable), title, description, category, status ('draft'|'on_floor'|'closed'),
+//   type, options (list 2..20), optionIds (list 2..20), totalVotesWeighted, totalBallots,
+//   agendaOrder?, createdAt (immutable), openedAt?, closedAt?, createdBy (immutable),
+//   quorumRequiredPercent (0..100), statuteArticleRef?, finalResults?
+//
+// Subcollection: assemblyQuestions/{questionId}/ballots
+// Document ID: {uid} (one immutable ballot per voter UID; no memberEmail PII)
+// Fields: id, questionId (== path questionId), memberCode, memberName,
+//   membershipCategory, votedOptionId (in question.optionIds), voteWeight (int == member.verifiedVoteWeight),
+//   timestamp, breakdown
+//
+// Collection: boardInquiries
+// Document ID: {inquiryId}
+// Fields: id (immutable), title, content, category, authorUid (immutable),
+//   authorName (immutable), authorMemberCode (immutable), authorCategory (immutable),
+//   submittedAt (immutable), status ('submitted'|'under_review'|'agenda_item'|'answered'),
+//   boardResponse?, convertedToQuestionId?
+//
+// Subcollection: boardInquiries/{inquiryId}/upvotes
+// Document ID: {uid}
+// Fields: uid?, createdAt?
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() &&
+        ('uid' in resource.data) &&
+        request.auth.uid == resource.data.uid;
+    }
+
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) ||
+        request.resource.data.uid == request.auth.uid;
+    }
+
+    function uidNotModified() {
+      return !('uid' in request.resource.data) ||
+        !('uid' in resource.data) ||
+        request.resource.data.uid == resource.data.uid;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    function optStr(data, field, maxLen) {
+      let v = data.get(field, '');
+      return v is string && v.size() <= maxLen;
+    }
+
+    function optStrMin(data, field, minLen, maxLen) {
+      return !(field in data) ||
+        (data[field] is string && data[field].size() >= minLen && data[field].size() <= maxLen);
+    }
+
+    function optBool(data, field) {
+      return data.get(field, false) is bool;
+    }
+
+    function optNum(data, field, minVal, maxVal) {
+      let v = data.get(field, minVal);
+      return v is number && v >= minVal && v <= maxVal;
+    }
+
+    function optInt(data, field, minVal, maxVal) {
+      let v = data.get(field, minVal);
+      return v is int && v >= minVal && v <= maxVal;
+    }
+
+    function validStringLength(field, minLen, maxLen) {
+      let val = request.resource.data[field];
+      return val is string &&
+        val.size() >= minLen &&
+        val.size() <= maxLen;
+    }
+
+    function isValidOptionalString(field, minLen, maxLen) {
+      return minLen == 0
+        ? optStr(request.resource.data, field, maxLen)
+        : optStrMin(request.resource.data, field, minLen, maxLen);
+    }
+
+    function isValidOptionalBool(field) {
+      return optBool(request.resource.data, field);
+    }
+
+    function isValidOptionalNumber(field, minVal, maxVal) {
+      return optNum(request.resource.data, field, minVal, maxVal);
+    }
+
+    function isValidOptionalInt(field, minVal, maxVal) {
+      return optInt(request.resource.data, field, minVal, maxVal);
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() >= 3 &&
+        email.size() <= 254 &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidHttpUrl(url) {
+      return url is string &&
+        url.size() >= 8 &&
+        url.size() <= 2048 &&
+        url.matches("^[Hh][Tt][Tt][Pp][Ss]?://[^/\\\\\\s@\\x00-\\x1f\\x7f\\x{0080}-\\x{009f}\\x{00a0}\\x{200b}-\\x{200d}\\x{feff}][^/\\\\\\s@\\x00-\\x1f\\x7f\\x{0080}-\\x{009f}\\x{00a0}\\x{200b}-\\x{200d}\\x{feff}]*([/?#][^\\s\\x00-\\x1f\\x7f\\x{0080}-\\x{009f}\\x{00a0}\\x{200b}-\\x{200d}\\x{feff}]*)?$") &&
+        !url.matches("^[Hh][Tt][Tt][Pp][Ss]?://\\.{1,2}([/?#:].*)?$");
+    }
+
+    function isValidImageUrl(url) {
+      return url is string &&
+        (
+          isValidHttpUrl(url) ||
+          (
+            url.size() <= 500000 &&
+            url.matches("^data:image/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$")
+          )
+        );
+    }
+
+    function isValidOptionalImageUrl(field) {
+      return !(field in request.resource.data) ||
+        request.resource.data[field] == '' ||
+        isValidImageUrl(request.resource.data[field]);
+    }
+
+    function isValidList(listVal, maxSize) {
+      return listVal is list && listVal.size() <= maxSize;
+    }
+
+    function isValidMap(mapData, allowedKeys) {
+      return mapData is map && mapData.keys().hasOnly(allowedKeys);
+    }
+
+    // ===============================================================
+    // Role & Authority Helper Functions (from caller's /members/{uid} doc)
+    // ===============================================================
+
+    function callerDocPath() {
+      return /databases/$(database)/documents/members/$(request.auth.uid);
+    }
+
+    function hasCallerDoc() {
+      return isAuthenticated() && exists(callerDocPath());
+    }
+
+    function callerData() {
+      return get(callerDocPath()).data;
+    }
+
+    function isSuperAdminData(d) {
+      return d.get('isSuperAdmin', false) == true;
+    }
+
+    function isAdminData(d) {
+      return d.get('isAdmin', false) == true || d.get('isSuperAdmin', false) == true;
+    }
+
+    function isAuthorizedStaffData(d) {
+      return isAdminData(d) ||
+        d.get('canManageBoard', false) == true ||
+        d.get('canScanQR', false) == true;
+    }
+
+    function isSuperAdmin() {
+      return hasCallerDoc() && isSuperAdminData(callerData());
+    }
+
+    function isAdmin() {
+      return hasCallerDoc() && isAdminData(callerData());
+    }
+
+    function canManageBoard() {
+      return hasCallerDoc() && callerData().get('canManageBoard', false) == true;
+    }
+
+    function canScanQR() {
+      return hasCallerDoc() && callerData().get('canScanQR', false) == true;
+    }
+
+    function isAuthorizedStaff() {
+      return hasCallerDoc() && isAuthorizedStaffData(callerData());
+    }
+
+    function isAdminOrScannerData(d) {
+      return isAdminData(d) || d.get('canScanQR', false) == true;
+    }
+
+    function isAdminOrScanner() {
+      return hasCallerDoc() && isAdminOrScannerData(callerData());
+    }
+
+    function isMemberActiveOrExempt(memberData) {
+      return memberData.get('membershipStatus', '') == 'active' ||
+        (
+          ('feeExemption' in memberData) &&
+          memberData.feeExemption is map &&
+          memberData.feeExemption.get('isExempt', false) == true
+        );
+    }
+
+    function isActiveOrExemptMember() {
+      return hasCallerDoc() && isMemberActiveOrExempt(callerData());
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidCategoryChangeRequestMap(r) {
+      return r is map &&
+        r.keys().hasOnly([
+          'requestedCategory', 'requestedAt', 'reason', 'status',
+          'reviewedBy', 'reviewedAt', 'reviewNotes'
+        ]) &&
+        (r.get('requestedCategory', 'personal') in ['personal', 'family']) &&
+        (r.get('status', 'pending') in ['pending', 'approved', 'rejected']);
+    }
+
+    function isValidPendingStatusRequestMap(r) {
+      return r is map &&
+        r.keys().hasOnly([
+          'requestedStatus', 'reason', 'effectiveDate', 'submittedAt',
+          'destinationCountry', 'status', 'notes'
+        ]) &&
+        (r.get('requestedStatus', 'active') in ['active', 'pending_payment', 'relocated', 'fee_paused', 'inactive']) &&
+        (r.get('status', 'submitted_to_board') in ['submitted_to_board', 'acknowledged', 'approved']);
+    }
+
+    function isValidFeeExemptionMap(f) {
+      return f is map &&
+        f.keys().hasOnly([
+          'isExempt', 'votedYear', 'exemptionYear', 'approvedByGA',
+          'resolutionRef', 'exemptionReason', 'validUntil', 'retainsBenefits'
+        ]) &&
+        f.get('isExempt', false) is bool &&
+        f.get('approvedByGA', false) is bool &&
+        f.get('retainsBenefits', false) is bool;
+    }
+
+    function isValidMemberMaps(d) {
+      return (!('address' in d) || (d.address is map && d.address.keys().hasOnly(['street', 'city', 'postalCode', 'country']))) &&
+        (!('spouse' in d) || (d.spouse is map && d.spouse.keys().hasOnly(['name', 'email', 'phone']))) &&
+        (!('categoryChangeRequest' in d) || isValidCategoryChangeRequestMap(d.categoryChangeRequest)) &&
+        (!('pendingStatusRequest' in d) || isValidPendingStatusRequestMap(d.pendingStatusRequest)) &&
+        (!('feeExemption' in d) || isValidFeeExemptionMap(d.feeExemption));
+    }
+
+    function isValidMember(d) {
+      return d.keys().hasOnly([
+          'uid', 'emailVerified', 'authProvider', 'name', 'email', 'phone',
+          'address', 'interest', 'memberCode', 'role', 'isAdmin', 'isSuperAdmin',
+          'canScanQR', 'canManageBoard', 'joinedAt', 'avatarUrl',
+          'membershipCategory', 'membershipStatus', 'statusReason',
+          'statusChangeDate', 'spouse', 'children', 'yearlyContribution',
+          'monthlyFee', 'membershipYear', 'validUntil', 'gaApprovalStatus',
+          'lastGaResolutionRef', 'categoryChangeRequest', 'feeExemption',
+          'pendingStatusRequest', 'formalStatusHistory',
+          'acknowledgedEmailNotices', 'acknowledgedMembershipFee',
+          'paymentStatus', 'paymentMethod', 'paidAt', 'paymentVerifiedBy',
+          'paymentReference',
+          'verifiedVoteWeight', 'voteWeightVerifiedAt', 'voteWeightVerifiedBy'
+        ]) &&
+        d.keys().hasAll(['uid', 'name', 'email']) &&
+        d.uid is string && d.uid.size() >= 1 && d.uid.size() <= 128 &&
+        d.name is string && d.name.size() >= 1 && d.name.size() <= 150 &&
+        isValidEmail(d.email) &&
+        d.get('isAdmin', false) is bool &&
+        d.get('isSuperAdmin', false) is bool &&
+        d.get('canScanQR', false) is bool &&
+        d.get('canManageBoard', false) is bool &&
+        (d.get('authProvider', 'password') in ['password', 'google']) &&
+        (d.get('membershipCategory', 'personal') in ['personal', 'family']) &&
+        (d.get('membershipStatus', 'active') in ['active', 'pending_payment', 'relocated', 'fee_paused', 'inactive']) &&
+        (d.get('gaApprovalStatus', 'approved_current_year') in ['approved_current_year', 'pending_ga_renewal', 'expired_at_year_end']) &&
+        (d.get('paymentStatus', 'paid') in ['paid', 'pending_payment', 'exempt']) &&
+        (d.get('paymentMethod', 'twint') in ['twint', 'bank_transfer', 'cash', 'exempt']) &&
+        (!('avatarUrl' in d) || d.avatarUrl == '' || isValidImageUrl(d.avatarUrl)) &&
+        d.get('children', []) is list && d.get('children', []).size() <= 15 &&
+        d.get('formalStatusHistory', []) is list && d.get('formalStatusHistory', []).size() <= 100 &&
+        d.get('verifiedVoteWeight', 0) is int &&
+        d.get('verifiedVoteWeight', 0) >= 0 &&
+        d.get('verifiedVoteWeight', 0) <= 20 &&
+        d.get('yearlyContribution', 0) is number &&
+        d.get('phone', '') is string && d.get('phone', '').size() <= 50 &&
+        d.get('memberCode', '') is string && d.get('memberCode', '').size() <= 64 &&
+        d.get('role', '') is string && d.get('role', '').size() <= 120 &&
+        isValidMemberMaps(d);
+    }
+
+    function hasNoPrivilegesOnCreate(d) {
+      return d.get('isAdmin', false) == false &&
+        d.get('isSuperAdmin', false) == false &&
+        d.get('canManageBoard', false) == false &&
+        d.get('canScanQR', false) == false &&
+        d.get('paymentStatus', 'pending_payment') != 'exempt' &&
+        (!('feeExemption' in d) || (d.feeExemption is map && d.feeExemption.get('isExempt', false) == false)) &&
+        !d.keys().hasAny(['verifiedVoteWeight', 'voteWeightVerifiedAt', 'voteWeightVerifiedBy']);
+    }
+
+    function isAllowedSelfProfileUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'phone', 'address', 'interest', 'avatarUrl',
+          'spouse', 'children', 'categoryChangeRequest', 'pendingStatusRequest',
+          'acknowledgedEmailNotices', 'acknowledgedMembershipFee'
+        ]) &&
+        (
+          !('categoryChangeRequest' in request.resource.data) ||
+          (('categoryChangeRequest' in resource.data) && request.resource.data.categoryChangeRequest == resource.data.categoryChangeRequest) ||
+          (
+            request.resource.data.categoryChangeRequest is map &&
+            request.resource.data.categoryChangeRequest.get('status', '') == 'pending' &&
+            !request.resource.data.categoryChangeRequest.keys().hasAny(['reviewedBy', 'reviewedAt', 'reviewNotes'])
+          )
+        ) &&
+        (
+          !('pendingStatusRequest' in request.resource.data) ||
+          (('pendingStatusRequest' in resource.data) && request.resource.data.pendingStatusRequest == resource.data.pendingStatusRequest) ||
+          (request.resource.data.pendingStatusRequest is map && request.resource.data.pendingStatusRequest.get('status', '') == 'submitted_to_board')
+        );
+    }
+
+    function canAdminCreateMemberData(c, d) {
+      return c.get('isSuperAdmin', false) == true ||
+        (c.get('isAdmin', false) == true && d.get('isSuperAdmin', false) == false);
+    }
+
+    function canStaffUpdateMemberData(c, uid) {
+      return c.get('isSuperAdmin', false) == true ||
+        (
+          c.get('isAdmin', false) == true &&
+          resource.data.get('isSuperAdmin', false) == false &&
+          request.resource.data.get('isSuperAdmin', false) == false
+        ) ||
+        (
+          c.get('canScanQR', false) == true &&
+          request.auth.uid != uid &&
+          resource.data.get('isSuperAdmin', false) == false &&
+          resource.data.get('isAdmin', false) == false &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'membershipStatus', 'paymentStatus', 'paymentMethod',
+            'paidAt', 'paymentVerifiedBy', 'formalStatusHistory'
+          ]) &&
+          request.resource.data.membershipStatus == 'active' &&
+          request.resource.data.paymentStatus == 'paid' &&
+          request.resource.data.paymentMethod == 'cash'
+        );
+    }
+
+    function isValidAttendanceRecord(data) {
+      return hasOnlyAllowedFields([
+          'id', 'eventId', 'eventTitle', 'memberCode', 'memberName',
+          'memberEmail', 'category', 'status', 'isFeeExempt',
+          'partyCount', 'partyMembers', 'scannedAt', 'scannedBy',
+          'feePaidChf', 'verified', 'notes'
+        ]) &&
+        hasRequiredFields([
+          'id', 'eventId', 'eventTitle', 'memberCode', 'memberName',
+          'category', 'status', 'isFeeExempt', 'partyCount',
+          'partyMembers', 'scannedAt', 'scannedBy', 'feePaidChf', 'verified'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('eventId', 1, 128) &&
+        validStringLength('eventTitle', 1, 250) &&
+        validStringLength('memberCode', 1, 64) &&
+        validStringLength('memberName', 1, 150) &&
+        (!('memberEmail' in data) || isValidEmail(data.memberEmail)) &&
+        (data.category in ['personal', 'family']) &&
+        (data.status in ['active', 'pending_payment', 'relocated', 'fee_paused', 'inactive']) &&
+        (data.isFeeExempt is bool) &&
+        (data.partyCount is number && data.partyCount >= 1 && data.partyCount <= 25) &&
+        isValidList(data.partyMembers, 25) &&
+        validStringLength('scannedAt', 1, 64) &&
+        validStringLength('scannedBy', 1, 150) &&
+        (data.feePaidChf is number && data.feePaidChf >= 0 && data.feePaidChf <= 10000) &&
+        (data.verified is bool) &&
+        isValidOptionalString('notes', 0, 1000);
+    }
+
+    function isValidProgram(data) {
+      return hasOnlyAllowedFields([
+          'id', 'title', 'category', 'tag', 'tagColor', 'iconName',
+          'description', 'imageUrl', 'dateOrSchedule', 'location',
+          'participantsCount', 'detailedOverview'
+        ]) &&
+        hasRequiredFields([
+          'id', 'title', 'category', 'tag', 'iconName',
+          'description', 'imageUrl', 'dateOrSchedule', 'location', 'detailedOverview'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('title', 1, 200) &&
+        (data.category in ['Religious', 'Social Impact', 'Youth', 'Health', 'Transparency', 'Community']) &&
+        validStringLength('tag', 0, 80) &&
+        isValidOptionalString('tagColor', 0, 50) &&
+        validStringLength('iconName', 1, 64) &&
+        validStringLength('description', 0, 2000) &&
+        isValidImageUrl(data.imageUrl) &&
+        validStringLength('dateOrSchedule', 0, 200) &&
+        validStringLength('location', 0, 250) &&
+        isValidOptionalString('participantsCount', 0, 150) &&
+        validStringLength('detailedOverview', 0, 5000);
+    }
+
+    function isValidCampaign(data) {
+      return hasOnlyAllowedFields([
+          'id', 'title', 'description', 'progressPercent',
+          'currentAmount', 'goalAmount', 'isCritical', 'tag',
+          'iconName', 'imageUrl', 'beneficiaries'
+        ]) &&
+        hasRequiredFields([
+          'id', 'title', 'description', 'progressPercent',
+          'currentAmount', 'goalAmount'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('title', 1, 200) &&
+        validStringLength('description', 0, 2000) &&
+        (data.progressPercent is number && data.progressPercent >= 0 && data.progressPercent <= 1000) &&
+        (data.currentAmount is number && data.currentAmount >= 0 && data.currentAmount <= 100000000) &&
+        (data.goalAmount is number && data.goalAmount >= 1 && data.goalAmount <= 100000000) &&
+        isValidOptionalBool('isCritical') &&
+        isValidOptionalString('tag', 0, 80) &&
+        isValidOptionalString('iconName', 0, 64) &&
+        isValidOptionalImageUrl('imageUrl') &&
+        isValidOptionalString('beneficiaries', 0, 200);
+    }
+
+    function isValidDestination(data) {
+      return hasOnlyAllowedFields([
+          'id', 'name', 'shortLabel', 'category', 'description', 'totalCollected'
+        ]) &&
+        hasRequiredFields([
+          'id', 'name', 'shortLabel', 'category', 'description'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('name', 1, 200) &&
+        validStringLength('shortLabel', 1, 100) &&
+        validStringLength('category', 1, 100) &&
+        validStringLength('description', 0, 2000) &&
+        isValidOptionalNumber('totalCollected', 0, 100000000);
+    }
+
+    function isValidEvent(data) {
+      return hasOnlyAllowedFields([
+          'id', 'title', 'date', 'time', 'category', 'location',
+          'isOnline', 'onlineLink', 'speaker', 'description',
+          'capacity', 'registeredCount', 'featured', 'imageUrl',
+          'regularFee', 'memberSubsidizedFee'
+        ]) &&
+        hasRequiredFields([
+          'id', 'title', 'date', 'time', 'category', 'location', 'description'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('title', 1, 200) &&
+        validStringLength('date', 1, 32) &&
+        validStringLength('time', 1, 100) &&
+        (data.category in ['Majelis & Spiritual', 'Charity & Relief', 'Youth & Education', 'Community Gathering']) &&
+        validStringLength('location', 1, 250) &&
+        isValidOptionalBool('isOnline') &&
+        (!('onlineLink' in data) || data.onlineLink == '' || isValidHttpUrl(data.onlineLink)) &&
+        isValidOptionalString('speaker', 0, 200) &&
+        validStringLength('description', 0, 3000) &&
+        isValidOptionalNumber('capacity', 1, 100000) &&
+        isValidOptionalNumber('registeredCount', 0, 100000) &&
+        isValidOptionalBool('featured') &&
+        isValidOptionalImageUrl('imageUrl') &&
+        isValidOptionalNumber('regularFee', 0, 10000) &&
+        isValidOptionalNumber('memberSubsidizedFee', 0, 10000);
+    }
+
+    function isValidBoardMember(data) {
+      return hasOnlyAllowedFields([
+          'id', 'name', 'role', 'department', 'imageUrl',
+          'bio', 'email', 'phone', 'order'
+        ]) &&
+        hasRequiredFields([
+          'id', 'name', 'role', 'department', 'imageUrl', 'bio'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('name', 1, 150) &&
+        validStringLength('role', 1, 150) &&
+        validStringLength('department', 1, 100) &&
+        isValidImageUrl(data.imageUrl) &&
+        validStringLength('bio', 0, 2000) &&
+        (!('email' in data) || data.email == '' || isValidEmail(data.email)) &&
+        isValidOptionalString('phone', 0, 50) &&
+        isValidOptionalNumber('order', 0, 10000);
+    }
+
+    function isValidSiteNotice(data) {
+      return hasOnlyAllowedFields([
+          'enabled', 'message', 'badge', 'linkText', 'linkScreen'
+        ]) &&
+        hasRequiredFields(['enabled', 'message', 'badge']) &&
+        (data.enabled is bool) &&
+        validStringLength('message', 0, 1000) &&
+        validStringLength('badge', 0, 80) &&
+        isValidOptionalString('linkText', 0, 100) &&
+        (!('linkScreen' in data) || data.linkScreen == '' || (data.linkScreen in [
+          'home', 'programs', 'donate', 'gallery', 'about',
+          'contact', 'login', 'member', 'assembly', 'brand'
+        ]));
+    }
+
+    function isValidBootstrap(data) {
+      return hasOnlyAllowedFields(['seededAt', 'seededBy', 'version']) &&
+        hasRequiredFields(['seededAt', 'seededBy']) &&
+        validStringLength('seededAt', 1, 64) &&
+        validStringLength('seededBy', 1, 150) &&
+        isValidOptionalString('version', 1, 32);
+    }
+
+    function isValidDonationPledgeCreate(data) {
+      return hasOnlyAllowedFields([
+          'id', 'donorName', 'email', 'amount', 'currency',
+          'destination', 'date', 'paymentMethod', 'status', 'notes'
+        ]) &&
+        hasRequiredFields([
+          'id', 'donorName', 'email', 'amount', 'currency',
+          'destination', 'date', 'paymentMethod', 'status'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('donorName', 1, 150) &&
+        isValidEmail(data.email) &&
+        (data.amount is number && data.amount >= 1 && data.amount <= 100000) &&
+        data.currency == 'CHF' &&
+        validStringLength('destination', 1, 200) &&
+        validStringLength('date', 1, 64) &&
+        validStringLength('paymentMethod', 1, 100) &&
+        data.status == 'Processing' &&
+        isValidOptionalString('notes', 0, 1000);
+    }
+
+    function isValidDonationPledgeUpdate(data) {
+      return hasOnlyAllowedFields([
+          'id', 'donorName', 'email', 'amount', 'currency',
+          'destination', 'date', 'paymentMethod', 'status', 'notes', 'promotedReportId'
+        ]) &&
+        hasRequiredFields([
+          'id', 'donorName', 'email', 'amount', 'currency',
+          'destination', 'date', 'paymentMethod', 'status'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('donorName', 1, 150) &&
+        isValidEmail(data.email) &&
+        (data.amount is number && data.amount >= 1 && data.amount <= 100000) &&
+        data.currency == 'CHF' &&
+        validStringLength('destination', 1, 200) &&
+        validStringLength('date', 1, 64) &&
+        validStringLength('paymentMethod', 1, 100) &&
+        (data.status in ['Processing', 'Promoted', 'Rejected']) &&
+        isValidOptionalString('notes', 0, 1000) &&
+        isValidOptionalString('promotedReportId', 0, 128);
+    }
+
+    function isValidDonationReport(data) {
+      return hasOnlyAllowedFields([
+          'id', 'donorName', 'email', 'amount', 'currency',
+          'destination', 'date', 'paymentMethod', 'status', 'notes', 'sourcePledgeId'
+        ]) &&
+        hasRequiredFields([
+          'id', 'donorName', 'email', 'amount',
+          'destination', 'date', 'paymentMethod', 'status'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('donorName', 1, 150) &&
+        isValidEmail(data.email) &&
+        (data.amount is number && data.amount >= 1 && data.amount <= 100000) &&
+        (!('currency' in data) || (data.currency in ['CHF', 'EUR', 'USD'])) &&
+        validStringLength('destination', 1, 200) &&
+        validStringLength('date', 1, 64) &&
+        validStringLength('paymentMethod', 1, 100) &&
+        (data.status in ['Completed', 'Processing', 'Flagged']) &&
+        isValidOptionalString('notes', 0, 1000) &&
+        isValidOptionalString('sourcePledgeId', 0, 128);
+    }
+
+    function isValidGASession(data) {
+      return hasOnlyAllowedFields([
+          'isOpen', 'sessionTitle', 'scheduledDate', 'activeQuestionId',
+          'openedAt', 'closedAt', 'openedBy', 'location'
+        ]) &&
+        hasRequiredFields([
+          'isOpen', 'sessionTitle', 'scheduledDate', 'activeQuestionId'
+        ]) &&
+        (data.isOpen is bool) &&
+        validStringLength('sessionTitle', 1, 200) &&
+        validStringLength('scheduledDate', 1, 100) &&
+        (data.activeQuestionId == null || (data.activeQuestionId is string && data.activeQuestionId.size() >= 1 && data.activeQuestionId.size() <= 128)) &&
+        isValidOptionalString('openedAt', 0, 64) &&
+        isValidOptionalString('closedAt', 0, 64) &&
+        isValidOptionalString('openedBy', 0, 150) &&
+        isValidOptionalString('location', 0, 200);
+    }
+
+    function isValidFinalResults(data) {
+      return !('finalResults' in data) || (
+        isValidMap(data.finalResults, ['totalWeight', 'totalBallots', 'closedAt', 'closedBy', 'optionTotals']) &&
+        data.finalResults.keys().hasAll(['totalWeight', 'totalBallots', 'closedAt', 'closedBy', 'optionTotals']) &&
+        (data.finalResults.totalWeight is number && data.finalResults.totalWeight >= 0 && data.finalResults.totalWeight <= 100000) &&
+        (data.finalResults.totalBallots is number && data.finalResults.totalBallots >= 0 && data.finalResults.totalBallots <= 100000) &&
+        (data.finalResults.closedAt is string && data.finalResults.closedAt.size() >= 1 && data.finalResults.closedAt.size() <= 64) &&
+        (data.finalResults.closedBy is string && data.finalResults.closedBy.size() >= 1 && data.finalResults.closedBy.size() <= 150) &&
+        (data.finalResults.optionTotals is map && data.finalResults.optionTotals.size() <= 20)
+      );
+    }
+
+    function isValidAssemblyQuestion(data) {
+      return hasOnlyAllowedFields([
+          'id', 'title', 'description', 'category', 'status', 'type',
+          'options', 'optionIds', 'totalVotesWeighted', 'totalBallots',
+          'agendaOrder', 'createdAt', 'openedAt', 'closedAt', 'createdBy',
+          'quorumRequiredPercent', 'statuteArticleRef', 'finalResults'
+        ]) &&
+        hasRequiredFields([
+          'id', 'title', 'description', 'category', 'status', 'type',
+          'options', 'optionIds', 'totalVotesWeighted', 'totalBallots',
+          'createdAt', 'createdBy', 'quorumRequiredPercent'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('title', 1, 250) &&
+        validStringLength('description', 0, 5000) &&
+        (data.category in [
+          'Budget & Financial', 'Statute Amendment', 'Board Election',
+          'Community Project', 'General Resolution'
+        ]) &&
+        (data.status in ['draft', 'on_floor', 'closed']) &&
+        (data.type in ['yes_no_abstain', 'multiple_choice']) &&
+        (data.options is list && data.options.size() >= 2 && data.options.size() <= 20) &&
+        (data.optionIds is list && data.optionIds.size() >= 2 && data.optionIds.size() <= 20) &&
+        (data.totalVotesWeighted is number && data.totalVotesWeighted >= 0 && data.totalVotesWeighted <= 100000) &&
+        (data.totalBallots is number && data.totalBallots >= 0 && data.totalBallots <= 100000) &&
+        isValidOptionalNumber('agendaOrder', 0, 1000) &&
+        validStringLength('createdAt', 1, 64) &&
+        isValidOptionalString('openedAt', 0, 64) &&
+        isValidOptionalString('closedAt', 0, 64) &&
+        validStringLength('createdBy', 1, 150) &&
+        (data.quorumRequiredPercent is number && data.quorumRequiredPercent >= 0 && data.quorumRequiredPercent <= 100) &&
+        isValidOptionalString('statuteArticleRef', 0, 200) &&
+        isValidFinalResults(data);
+    }
+
+    function isValidBallotBreakdown(data) {
+      return ('breakdown' in data) &&
+        isValidMap(data.breakdown, [
+          'primaryEligible', 'spouseEligible',
+          'eligibleChildrenNames', 'ineligibleChildrenNames'
+        ]) &&
+        data.breakdown.keys().hasAll([
+          'primaryEligible', 'spouseEligible',
+          'eligibleChildrenNames', 'ineligibleChildrenNames'
+        ]) &&
+        (data.breakdown.primaryEligible is bool) &&
+        (data.breakdown.spouseEligible is bool) &&
+        isValidList(data.breakdown.eligibleChildrenNames, 15) &&
+        isValidList(data.breakdown.ineligibleChildrenNames, 15);
+    }
+
+    function isValidBallot(data, pathQuestionId) {
+      return hasOnlyAllowedFields([
+          'id', 'questionId', 'memberCode', 'memberName',
+          'membershipCategory', 'votedOptionId', 'voteWeight',
+          'timestamp', 'breakdown'
+        ]) &&
+        hasRequiredFields([
+          'id', 'questionId', 'memberCode', 'memberName',
+          'membershipCategory', 'votedOptionId', 'voteWeight',
+          'timestamp', 'breakdown'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('questionId', 1, 128) &&
+        data.questionId == pathQuestionId &&
+        validStringLength('memberCode', 1, 64) &&
+        validStringLength('memberName', 1, 150) &&
+        (data.membershipCategory in ['personal', 'family']) &&
+        validStringLength('votedOptionId', 1, 128) &&
+        (data.voteWeight is int && data.voteWeight >= 1 && data.voteWeight <= 20) &&
+        validStringLength('timestamp', 1, 64) &&
+        isValidBallotBreakdown(data);
+    }
+
+    function isValidBoardResponse(data) {
+      return !('boardResponse' in data) || (
+        isValidMap(data.boardResponse, ['answeredBy', 'answeredAt', 'responseText']) &&
+        data.boardResponse.keys().hasAll(['answeredBy', 'answeredAt', 'responseText']) &&
+        (data.boardResponse.answeredBy is string && data.boardResponse.answeredBy.size() >= 1 && data.boardResponse.answeredBy.size() <= 150) &&
+        (data.boardResponse.answeredAt is string && data.boardResponse.answeredAt.size() >= 1 && data.boardResponse.answeredAt.size() <= 64) &&
+        (data.boardResponse.responseText is string && data.boardResponse.responseText.size() >= 1 && data.boardResponse.responseText.size() <= 4000)
+      );
+    }
+
+    function isValidBoardInquiry(data) {
+      return hasOnlyAllowedFields([
+          'id', 'title', 'content', 'category', 'authorUid',
+          'authorName', 'authorMemberCode', 'authorCategory',
+          'submittedAt', 'status', 'boardResponse', 'convertedToQuestionId'
+        ]) &&
+        hasRequiredFields([
+          'id', 'title', 'content', 'category', 'authorUid',
+          'authorName', 'authorMemberCode', 'authorCategory',
+          'submittedAt', 'status'
+        ]) &&
+        validStringLength('id', 1, 128) &&
+        validStringLength('title', 1, 200) &&
+        validStringLength('content', 1, 4000) &&
+        (data.category in [
+          'Finance & Audit', 'Programs & Tarbiyah',
+          'Mosque & Facility', 'Statute & Governance', 'General'
+        ]) &&
+        validStringLength('authorUid', 1, 128) &&
+        validStringLength('authorName', 1, 150) &&
+        validStringLength('authorMemberCode', 1, 64) &&
+        (data.authorCategory in ['personal', 'family']) &&
+        validStringLength('submittedAt', 1, 64) &&
+        (data.status in ['submitted', 'under_review', 'agenda_item', 'answered']) &&
+        isValidBoardResponse(data) &&
+        isValidOptionalString('convertedToQuestionId', 1, 128);
+    }
+
+    function isValidInquiryUpvote(data, uid) {
+      return hasOnlyAllowedFields(['uid', 'createdAt']) &&
+        (!('uid' in data) || data.uid == uid) &&
+        isValidOptionalString('createdAt', 0, 64);
+    }
+
+    // ===============================================================
+    // Collection Rules: /members/{uid}
+    // ===============================================================
+
+    match /members/{uid} {
+      allow get: if isOwner(uid) || isAuthorizedStaff();
+      allow list: if isAuthorizedStaff();
+
+      allow create: if isAuthenticated() &&
+        (
+          (
+            request.auth.uid == uid &&
+            (!('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid) &&
+            hasNoPrivilegesOnCreate(request.resource.data) &&
+            ('email' in request.auth.token) &&
+            request.auth.token.email is string &&
+            ('email' in request.resource.data) &&
+            request.resource.data.email is string &&
+            request.resource.data.email.lower() == request.auth.token.email.lower()
+          ) ||
+          (
+            hasCallerDoc() &&
+            canAdminCreateMemberData(callerData(), request.resource.data)
+          )
+        ) &&
+        isValidMember(request.resource.data);
+
+      allow update: if isAuthenticated() &&
+        uidNotModified() &&
+        (
+          (request.auth.uid == uid && isAllowedSelfProfileUpdate()) ||
+          (
+            hasCallerDoc() &&
+            canStaffUpdateMemberData(callerData(), uid)
+          )
+        ) &&
+        isValidMember(request.resource.data);
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ===============================================================
+    // Collection Rules: /attendance/{recordId}
+    // ===============================================================
+
+    match /attendance/{recordId} {
+      allow read: if isAdminOrScanner();
+
+      allow create: if isAdminOrScanner() &&
+        isValidAttendanceRecord(request.resource.data);
+
+      allow update: if isAdminOrScanner() &&
+        isValidAttendanceRecord(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id', 'eventId', 'memberCode']);
+
+      allow delete: if isAdmin();
+    }
+
+    // ===============================================================
+    // Collection Rules: Public Content Catalogs
+    // ===============================================================
+
+    match /programs/{programId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidProgram(request.resource.data);
+      allow update: if isAdmin() &&
+        isValidProgram(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id']);
+      allow delete: if isAdmin();
+    }
+
+    match /campaigns/{campaignId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidCampaign(request.resource.data);
+      allow update: if isAdmin() &&
+        isValidCampaign(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id']);
+      allow delete: if isAdmin();
+    }
+
+    match /destinations/{destinationId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidDestination(request.resource.data);
+      allow update: if isAdmin() &&
+        isValidDestination(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id']);
+      allow delete: if isAdmin();
+    }
+
+    match /events/{eventId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidEvent(request.resource.data);
+      allow update: if isAdmin() &&
+        isValidEvent(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id']);
+      allow delete: if isAdmin();
+    }
+
+    match /boardMembers/{memberId} {
+      allow read: if true;
+      allow create: if (isAdmin() || canManageBoard()) &&
+        isValidBoardMember(request.resource.data);
+      allow update: if (isAdmin() || canManageBoard()) &&
+        isValidBoardMember(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id']);
+      allow delete: if isAdmin() || canManageBoard();
+    }
+
+    // ===============================================================
+    // Collection Rules: /siteConfig/*
+    // ===============================================================
+
+    match /siteConfig/notice {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidSiteNotice(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /siteConfig/bootstrap {
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin() && isValidBootstrap(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /siteConfig/gaSession {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidGASession(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // ===============================================================
+    // Collection Rules: Donations (/donationPledges & /donationReports)
+    // ===============================================================
+
+    match /donationPledges/{pledgeId} {
+      allow read: if isAdmin();
+      allow create: if isValidDonationPledgeCreate(request.resource.data);
+      allow update: if isAdmin() &&
+        isValidDonationPledgeUpdate(request.resource.data) &&
+        areImmutableFieldsUnchanged([
+          'id', 'donorName', 'email', 'amount', 'currency',
+          'destination', 'date', 'paymentMethod'
+        ]);
+      allow delete: if isAdmin();
+    }
+
+    match /donationReports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidDonationReport(request.resource.data);
+      allow update: if isAdmin() &&
+        isValidDonationReport(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id']);
+      allow delete: if isAdmin();
+    }
+
+    // ===============================================================
+    // Collection Rules: General Assembly (/assemblyQuestions + /ballots)
+    // ===============================================================
+
+    match /assemblyQuestions/{questionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidAssemblyQuestion(request.resource.data);
+      allow update: if isAdmin() &&
+        isValidAssemblyQuestion(request.resource.data) &&
+        areImmutableFieldsUnchanged(['id', 'createdAt', 'createdBy']);
+      allow delete: if isAdmin();
+
+      match /ballots/{uid} {
+        allow read: if isAuthenticated();
+
+        allow create: if isOwner(uid) &&
+          isValidBallot(request.resource.data, questionId) &&
+          request.resource.data.id == uid &&
+          exists(/databases/$(database)/documents/siteConfig/gaSession) &&
+          exists(/databases/$(database)/documents/assemblyQuestions/$(questionId)) &&
+          exists(/databases/$(database)/documents/members/$(uid)) &&
+          get(/databases/$(database)/documents/siteConfig/gaSession).data.isOpen == true &&
+          get(/databases/$(database)/documents/siteConfig/gaSession).data.activeQuestionId == questionId &&
+          get(/databases/$(database)/documents/assemblyQuestions/$(questionId)).data.status == 'on_floor' &&
+          ('optionIds' in get(/databases/$(database)/documents/assemblyQuestions/$(questionId)).data) &&
+          (request.resource.data.votedOptionId in get(/databases/$(database)/documents/assemblyQuestions/$(questionId)).data.optionIds) &&
+          isMemberActiveOrExempt(get(/databases/$(database)/documents/members/$(uid)).data) &&
+          (!('memberCode' in get(/databases/$(database)/documents/members/$(uid)).data) || request.resource.data.memberCode == get(/databases/$(database)/documents/members/$(uid)).data.memberCode) &&
+          (!('membershipCategory' in get(/databases/$(database)/documents/members/$(uid)).data) || request.resource.data.membershipCategory == get(/databases/$(database)/documents/members/$(uid)).data.membershipCategory) &&
+          ('verifiedVoteWeight' in get(/databases/$(database)/documents/members/$(uid)).data) &&
+          (get(/databases/$(database)/documents/members/$(uid)).data.verifiedVoteWeight is int) &&
+          get(/databases/$(database)/documents/members/$(uid)).data.verifiedVoteWeight >= 1 &&
+          get(/databases/$(database)/documents/members/$(uid)).data.verifiedVoteWeight <= 20 &&
+          request.resource.data.voteWeight == get(/databases/$(database)/documents/members/$(uid)).data.verifiedVoteWeight;
+
+        allow update, delete: if false;
+      }
+    }
+
+    // ===============================================================
+    // Collection Rules: Board Inquiries (/boardInquiries + /upvotes)
+    // ===============================================================
+
+    match /boardInquiries/{inquiryId} {
+      allow read: if isAuthenticated();
+
+      allow create: if isValidBoardInquiry(request.resource.data) &&
+        (
+          (
+            isActiveOrExemptMember() &&
+            request.resource.data.authorUid == request.auth.uid &&
+            request.resource.data.status == 'submitted' &&
+            !('boardResponse' in request.resource.data) &&
+            !('convertedToQuestionId' in request.resource.data)
+          ) ||
+          isAdmin()
+        );
+
+      allow update: if isAdmin() &&
+        isValidBoardInquiry(request.resource.data) &&
+        areImmutableFieldsUnchanged([
+          'id', 'authorUid', 'authorName',
+          'authorMemberCode', 'authorCategory', 'submittedAt'
+        ]);
+
+      allow delete: if isAdmin();
+
+      match /upvotes/{uid} {
+        allow read: if isAuthenticated();
+        allow create: if isOwner(uid) &&
+          isActiveOrExemptMember() &&
+          exists(/databases/$(database)/documents/boardInquiries/$(inquiryId)) &&
+          isValidInquiryUpvote(request.resource.data, uid);
+        allow update: if false;
+        allow delete: if isOwner(uid) && isActiveOrExemptMember();
+      }
+    }
+
+    // ===============================================================
+    // Default Deny All Other Paths
+    // ===============================================================
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

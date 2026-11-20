@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="160" viewBox="0 0 960 160" role="img" aria-labelledby="motif-ribbon-title">
+  <title id="motif-ribbon-title">Anatomy of the Spark — Alpine Topographic Contour Ribbon</title>
+  <!-- Subtle vertical Swiss elevation ticks -->
+  <g stroke="#D5CFC4" stroke-width="1" stroke-dasharray="2 4">
+    <line x1="160" y1="16" x2="160" y2="144"/>
+    <line x1="480" y1="16" x2="480" y2="144"/>
+    <line x1="800" y1="16" x2="800" y2="144"/>
+  </g>
+  <!-- Harmonic Alpine topographic contour splines -->
+  <g fill="none" stroke-linecap="round">
+    <path d="M 0 118 C 160 56, 320 144, 480 86 C 640 28, 800 128, 960 66" stroke="#9CC4E4" stroke-width="1.5" stroke-opacity="0.85"/>
+    <path d="M 0 96 C 180 34, 340 126, 480 68 C 620 10, 780 112, 960 48" stroke="#5B7E9E" stroke-width="1.5" stroke-opacity="0.65"/>
+    <path d="M 0 74 C 190 18, 350 108, 480 52 C 610 -4, 770 96, 960 32" stroke="#1D5B8C" stroke-width="1.75" stroke-opacity="0.72"/>
+    <path d="M 0 136 C 150 82, 310 154, 480 104 C 650 54, 810 140, 960 88" stroke="#8C5327" stroke-width="1.35" stroke-opacity="0.65"/>
+  </g>
+  <!-- Faceted diamond waypoint markers along the ridge -->
+  <polygon points="160,44 166,50 160,56 154,50" fill="#FAF9F6" stroke="#1D5B8C" stroke-width="1.5"/>
+  <polygon points="480,45 487,52 480,59 473,52" fill="#8C5327"/>
+  <polygon points="800,66 806,72 800,78 794,72" fill="#FAF9F6" stroke="#5B7E9E" stroke-width="1.5"/>
+</svg>

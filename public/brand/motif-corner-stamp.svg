@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160" role="img" aria-labelledby="motif-corner-title">
+  <title id="motif-corner-title">Anatomy of the Spark — Corner Registration Stamp</title>
+  <!-- Precision outer frame ticks -->
+  <path d="M 16 144 L 16 16 L 144 16" fill="none" stroke="#D5CFC4" stroke-width="1.5"/>
+  <path d="M 16 96 A 80 80 0 0 0 96 16" fill="none" stroke="#5B7E9E" stroke-opacity="0.4" stroke-width="1" stroke-dasharray="3 4"/>
+  <!-- 45-degree quarter Kawung facet derived from the Spark emblem -->
+  <path d="M 16 16 L 78 16 L 42 42 L 16 78 Z" fill="#DFE8F0" stroke="#1D5B8C" stroke-width="1.25"/>
+  <path d="M 16 16 L 48 16 L 28 28 L 16 48 Z" fill="#1D5B8C" fill-opacity="0.16" stroke="#5B7E9E" stroke-width="1"/>
+  <!-- Swiss "+" crosshair at registration origin -->
+  <g stroke="#132435" stroke-width="1.5" stroke-linecap="square">
+    <line x1="8" y1="16" x2="24" y2="16"/>
+    <line x1="16" y1="8" x2="16" y2="24"/>
+  </g>
+  <!-- Roasted Teak spark node -->
+  <polygon points="42,35 49,42 42,49 35,42" fill="#8C5327"/>
+  <circle cx="116" cy="16" r="2.5" fill="#B8B0A2"/>
+  <circle cx="16" cy="116" r="2.5" fill="#B8B0A2"/>
+</svg>
