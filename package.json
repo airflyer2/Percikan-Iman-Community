@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "save": "node scripts/git-save.mjs",
     "test": "vitest run",
     "test:rules": "vitest run --config vitest.rules.config.ts"
   },

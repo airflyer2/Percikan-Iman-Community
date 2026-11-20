@@ -100,6 +100,34 @@ Key variables:
 
 ---
 
+## GitHub Sync (`npm run save`) & Automated Firebase CI/CD
+
+### 1. One-Command Sync (`npm run save`)
+Sync workspace changes cleanly to `origin/main` without manual Git boilerplate:
+
+```bash
+npm run save -- "feat: describe your change"
+```
+
+- Runs a **Pre-Sync Secret & Size Guard** (`scripts/git-save.mjs`) that blocks `.env*` files (except `.env.example`), private keys (`.pem`, `.key`, `.p12`), service-account/credential JSON files, `.antigravity/`, `.firebase/`, raw secret tokens in added diff lines, and any file over **10 MB**.
+- Runs `npm run lint` automatically when `node_modules/` is installed locally, commits, rebases onto `origin/main`, and pushes.
+- Uses only Node.js built-in modules, so `npm run save` works even in slimmed-disk mode when `node_modules/` has been removed.
+
+### 2. Automated Firebase Deployment
+Every push to `main` runs [`.github/workflows/deploy-firebase.yml`](.github/workflows/deploy-firebase.yml):
+1. Installs dependencies (`npm ci`), runs `npm run lint` (`tsc --noEmit`) and `npm test` (`vitest run`).
+2. Builds the Vite bundle with production `VITE_*` and `GEMINI_API_KEY` GitHub Actions secrets (`VITE_USE_FIREBASE_EMULATOR="false"`).
+3. Authenticates via `FIREBASE_SERVICE_ACCOUNT_PERCIKAN_IMAN_724AE` and deploys `firestore:rules`, `firestore:indexes`, and `hosting` to `percikan-iman-724ae`.
+
+### 3. Rehydrating Dependencies After Local Disk Cleanup
+If `node_modules/` was deleted locally to save disk space, restore exact locked dependencies anytime with:
+
+```bash
+npm ci
+```
+
+---
+
 ## Initial Setup: One-Time `/admin/bootstrap` & Voter Roll Certification
 
 1. **Provision Super Admin:** Sign in with your Super Admin Firebase Auth account whose `/members/{uid}` document has `isSuperAdmin: true` and `isAdmin: true`.
